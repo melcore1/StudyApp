@@ -36,7 +36,7 @@ let userProfile = { name: '', email: '' };
 // ===== CONFIGURATION =====
 // ⚠️ WARNING: Keep this key private! Do NOT commit to public Git repos!
 const OPENROUTER_KEY = "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";
-const AI_MODEL = "google/gemini-flash-1.5"; // UPDATED model name
+const AI_MODEL = "google/gemini-2.0-flash-exp:free"; // Free Gemini model
 const MODEL_PRICING = { input: 0.00, output: 0.00 }; // It's FREE!
 
 // ===== INITIALIZATION =====
