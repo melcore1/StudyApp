@@ -23,7 +23,7 @@ import {
     onSnapshot,
     setDoc,
     getDoc
-} from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
+} from "https://www.gstatic.com/firebase-firestore.js";
 import { firebaseConfig } from './firebase-config.js';
 
 // ===== APP STATE =====
@@ -36,7 +36,7 @@ let userProfile = { name: '', email: '' };
 // ===== CONFIGURATION =====
 // ⚠️ WARNING: Keep this key private! Do NOT commit to public Git repos!
 const OPENROUTER_KEY = "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";
-const AI_MODEL = "google/gemini-1.5-flash"; // FREE model
+const AI_MODEL = "google/gemini-flash-1.5"; // UPDATED model name
 const MODEL_PRICING = { input: 0.00, output: 0.00 }; // It's FREE!
 
 // ===== INITIALIZATION =====
@@ -598,12 +598,24 @@ elements.chatInput.addEventListener('keypress', (e) => {
 async function sendMessage() {
     const message = elements.chatInput.value.trim();
     if (!message) return;
+    
+    // NEW: Input validation
+    if (message.length < 2) {
+        showToast('Message too short', 'error');
+        return;
+    }
+    
+    if (message.length > 2000) {
+        showToast('Message too long (max 2000 chars)', 'error');
+        return;
+    }
+    
     addMessage(message, 'user');
     elements.chatInput.value = '';
     elements.sendBtn.disabled = true;
     const loadingMsg = addMessage('Thinking...', 'ai', true);
     try {
-        const response = await callOpenRouter(message);
+        const response = await callOpenRouterWithFallback(message);
         loadingMsg.remove();
         addMessage(response.content, 'ai');
         updateMetrics(response.metrics);
@@ -617,38 +629,107 @@ async function sendMessage() {
     }
 }
 
+// ===== IMPROVED API CALL WITH BETTER ERROR HANDLING =====
 async function callOpenRouter(message) {
     const startTime = performance.now();
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${OPENROUTER_KEY}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': window.location.origin,
-            'X-Title': 'StudyApp'
-        },
-        body: JSON.stringify({
-            model: AI_MODEL,
-            messages: [{ role: 'user', content: message }],
-            stream: false
-        })
-    });
-    if (!response.ok) throw new Error(`API Error: ${response.status}`);
-    const data = await response.json();
-    const endTime = performance.now();
-    const usage = data.usage || {};
-    const promptTokens = usage.prompt_tokens || 0;
-    const completionTokens = usage.completion_tokens || 0;
-    const totalTokens = usage.total_tokens || 0;
-    const inputCost = (promptTokens / 1000000) * MODEL_PRICING.input;
-    const outputCost = (completionTokens / 1000000) * MODEL_PRICING.output;
-    const totalCost = inputCost + outputCost;
-    const duration = (endTime - startTime) / 1000;
-    const speed = duration > 0 ? (completionTokens / duration).toFixed(1) : 0;
-    return {
-        content: data.choices[0].message.content,
-        metrics: { promptTokens, completionTokens, totalTokens, totalCost, speed, duration: duration.toFixed(2) }
-    };
+    
+    try {
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${OPENROUTER_KEY}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': window.location.origin,
+                'X-Title': 'StudyApp'
+            },
+            body: JSON.stringify({
+                model: AI_MODEL,
+                messages: [{ role: 'user', content: message }]
+            })
+        });
+        
+        // Get the response body first for better error messages
+        const responseData = await response.json();
+        
+        if (!response.ok) {
+            // Log the full error for debugging
+            console.error('OpenRouter API Error:', responseData);
+            throw new Error(`API Error ${response.status}: ${responseData.error?.message || 'Invalid request'}`);
+        }
+        
+        const usage = responseData.usage || {};
+        const promptTokens = usage.prompt_tokens || 0;
+        const completionTokens = usage.completion_tokens || 0;
+        const totalTokens = usage.total_tokens || 0;
+        const inputCost = (promptTokens / 1000000) * MODEL_PRICING.input;
+        const outputCost = (completionTokens / 1000000) * MODEL_PRICING.output;
+        const totalCost = inputCost + outputCost;
+        const duration = (performance.now() - startTime) / 1000;
+        const speed = duration > 0 ? (completionTokens / duration).toFixed(1) : 0;
+        
+        return {
+            content: responseData.choices[0].message.content,
+            metrics: { promptTokens, completionTokens, totalTokens, totalCost, speed, duration: duration.toFixed(2) }
+        };
+        
+    } catch (error) {
+        // Log network errors too
+        if (error instanceof TypeError && error.message === 'Failed to fetch') {
+            throw new Error('Network error: Cannot reach OpenRouter API. Check your connection.');
+        }
+        throw error;
+    }
+}
+
+// ===== CORS FALLBACK FUNCTION =====
+async function callOpenRouterWithFallback(message) {
+    try {
+        return await callOpenRouter(message);
+    } catch (error) {
+        // If direct call fails, try with a CORS proxy
+        if (error.message.includes('Network error') || error.message.includes('Failed to fetch')) {
+            showToast('Trying alternative connection...', 'info');
+            // Use a public CORS proxy as fallback
+            const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
+            const originalUrl = 'https://openrouter.ai/api/v1/chat/completions';
+            
+            const response = await fetch(proxyUrl + originalUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${OPENROUTER_KEY}`,
+                    'Content-Type': 'application/json',
+                    'Origin': window.location.origin
+                },
+                body: JSON.stringify({
+                    model: AI_MODEL,
+                    messages: [{ role: 'user', content: message }]
+                })
+            });
+            
+            const responseData = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(`API Error ${response.status}: ${responseData.error?.message || 'Invalid request'}`);
+            }
+            
+            // Process successful response
+            const usage = responseData.usage || {};
+            const promptTokens = usage.prompt_tokens || 0;
+            const completionTokens = usage.completion_tokens || 0;
+            const totalTokens = usage.total_tokens || 0;
+            const inputCost = (promptTokens / 1000000) * MODEL_PRICING.input;
+            const outputCost = (completionTokens / 1000000) * MODEL_PRICING.output;
+            const totalCost = inputCost + outputCost;
+            const duration = (performance.now() - performance.now()) / 1000;
+            const speed = duration > 0 ? (completionTokens / duration).toFixed(1) : 0;
+            
+            return {
+                content: responseData.choices[0].message.content,
+                metrics: { promptTokens, completionTokens, totalTokens, totalCost, speed, duration: duration.toFixed(2) }
+            };
+        }
+        throw error;
+    }
 }
 
 function addMessage(content, sender, isLoading = false) {
