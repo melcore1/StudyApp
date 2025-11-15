@@ -84,12 +84,14 @@ const elements = {
 onAuthStateChanged(auth, async (user) => {
     if (user) {
         currentUser = user;
+        console.log("Auth state: User logged in:", currentUser.uid);
         await loadUserProfile();
         setupRealtimeListeners();
         showPage('homePage');
         updateProfileInfo();
         loadChatHistory();
     } else {
+        console.log("Auth state: No user");
         currentUser = null;
         userProfile = { name: '', email: '' };
         showPage('loginPage');
@@ -104,6 +106,7 @@ async function loadUserProfile() {
         const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
         if (userDoc.exists()) {
             userProfile = userDoc.data();
+            console.log("User profile loaded:", userProfile);
         } else {
             const name = currentUser.displayName || currentUser.email.split('@')[0];
             userProfile = {
@@ -112,6 +115,7 @@ async function loadUserProfile() {
                 createdAt: serverTimestamp()
             };
             await setDoc(doc(db, 'users', currentUser.uid), userProfile);
+            console.log("User profile created in Firestore");
         }
         
         localStorage.setItem('userName', userProfile.name);
@@ -128,44 +132,49 @@ async function loadUserProfile() {
 function setupRealtimeListeners() {
     if (!currentUser) return;
     
-    // IMPORTANT: This query requires a Firestore composite index!
-    // If assignments don't load, check your browser console for an error link
-    // to create the index automatically, or follow the manual steps below.
+    console.log("Setting up assignments listener for user:", currentUser.uid);
+    
+    // IMPORTANT: This query requires a Firestore composite index with EXACTLY these 2 fields:
+    // 1. userId (Ascending)
+    // 2. updatedAt (Descending)
     
     const assignmentsQuery = query(
         collection(db, 'assignments'),
         where('userId', '==', currentUser.uid),
-        orderBy('updatedAt', 'desc')  // Requires composite index
+        orderBy('updatedAt', 'desc')
     );
     
-    // TEMPORARY DEBUG QUERY (remove orderBy to test without index):
-    // const assignmentsQuery = query(
-    //     collection(db, 'assignments'),
-    //     where('userId', '==', currentUser.uid)
-    // );
+    // DEBUG: Log the query being used
+    console.log("Assignments query created");
     
     onSnapshot(assignmentsQuery, (snapshot) => {
+        console.log("Assignments snapshot received:", snapshot.docs.length, "documents");
         assignments = [];
         snapshot.forEach(doc => {
             assignments.push({ id: doc.id, ...doc.data() });
+            console.log("Assignment loaded:", doc.id, doc.data());
         });
+        console.log("Total assignments:", assignments.length);
         renderAssignments(assignments);
         updateHomeStats();
         loadHomePageData();
-        console.log(`Loaded ${assignments.length} assignments`); // Debug log
     }, (error) => {
         console.error('Assignments listener error:', error);
+        console.error('Error code:', error.code);
         showToast(`Failed to load assignments: ${error.message}`, 'error');
         
         // Show helpful index creation link from error
         if (error.message.includes('index')) {
-            showToast('Create required Firestore index (check console)', 'error');
+            showToast('Create required Firestore index (check console for link)', 'error');
+            console.log("Click this link to create the index automatically:");
+            console.log(`https://console.firebase.google.com/project/${firebaseConfig.projectId}/database/firestore/indexes?create_composite=ClNwcm9qZWN0L3N0dWR5YXBwL2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9hc3NpZ25tZW50cy9pbmRleGVzL0NJUWdPaklsSDBRAAAAAAAAAIAK`);
         }
     });
 }
 
 // ===== PAGE NAVIGATION =====
 function showPage(pageId) {
+    console.log("Navigating to page:", pageId);
     document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
     const targetPage = document.getElementById(pageId);
     targetPage.classList.add('active');
@@ -273,10 +282,12 @@ elements.searchAssignments.addEventListener('input', (e) => {
 
 // ===== MODAL FUNCTIONALITY =====
 elements.addAssignmentBtn.addEventListener('click', () => {
+    console.log("Add assignment button clicked");
     elements.addAssignmentModal.classList.add('active');
 });
 
 elements.closeModal.addEventListener('click', () => {
+    console.log("Close modal clicked");
     elements.addAssignmentModal.classList.remove('active');
     elements.addAssignmentForm.reset();
 });
@@ -290,10 +301,14 @@ elements.addAssignmentModal.addEventListener('click', (e) => {
 
 elements.addAssignmentForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    console.log("Add assignment form submitted");
+    
     const title = document.getElementById('assignmentTitle').value;
     const description = document.getElementById('assignmentDescription').value;
     const dueDate = document.getElementById('assignmentDueDate').value;
     const subject = document.getElementById('assignmentSubject').value;
+    
+    console.log("Form data:", { title, description, dueDate, subject });
     
     await addAssignment({ title, description, dueDate, subject });
     elements.addAssignmentModal.classList.remove('active');
@@ -302,20 +317,35 @@ elements.addAssignmentForm.addEventListener('submit', async (e) => {
 
 // ===== ASSIGNMENTS CRUD =====
 async function addAssignment(data) {
-    if (!currentUser) return;
+    if (!currentUser) {
+        console.error("No user logged in!");
+        showToast('You must be logged in', 'error');
+        return;
+    }
+    
     try {
         showToast('Adding assignment...', 'info');
-        await addDoc(collection(db, 'assignments'), {
+        console.log("Adding assignment with data:", data);
+        
+        const assignmentData = {
             ...data,
             userId: currentUser.uid,
             status: 'pending',
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
-        });
+        };
+        
+        console.log("Full assignment data to save:", assignmentData);
+        
+        const docRef = await addDoc(collection(db, 'assignments'), assignmentData);
+        console.log("Assignment saved with ID:", docRef.id);
+        
         showToast('Assignment added!', 'success');
     } catch (error) {
-        showToast(error.message, 'error');
-        console.error('Add assignment error:', error); // Debug log
+        console.error('Add assignment error:', error);
+        console.error('Error code:', error.code);
+        console.error('Error message:', error.message);
+        showToast(`Error: ${error.message}`, 'error');
     }
 }
 
@@ -330,8 +360,8 @@ async function toggleAssignmentStatus(id, currentStatus) {
         });
         showToast(`Marked as ${newStatus}`, 'success');
     } catch (error) {
+        console.error('Toggle status error:', error);
         showToast(error.message, 'error');
-        console.error('Toggle status error:', error); // Debug log
     }
 }
 
@@ -343,14 +373,16 @@ async function deleteAssignment(id) {
         await deleteDoc(assignmentRef);
         showToast('Assignment deleted', 'success');
     } catch (error) {
+        console.error('Delete error:', error);
         showToast(error.message, 'error');
-        console.error('Delete error:', error); // Debug log
     }
 }
 
 function renderAssignments(assignmentsToRender) {
+    console.log("Rendering assignments:", assignmentsToRender);
     const container = elements.assignmentsList;
     if (!assignmentsToRender || assignmentsToRender.length === 0) {
+        console.log("No assignments to render");
         container.innerHTML = `
             <div class="assignment-card">
                 <div class="assignment-title">No assignments yet</div>
@@ -359,6 +391,8 @@ function renderAssignments(assignmentsToRender) {
         `;
         return;
     }
+    
+    console.log("Rendering", assignmentsToRender.length, "assignments");
     
     container.innerHTML = assignmentsToRender.map(assignment => {
         const dueDate = assignment.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : 'No due date';
