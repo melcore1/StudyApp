@@ -252,12 +252,25 @@ document.getElementById('showLogin').addEventListener('click', () => showPage('l
 
 elements.forgotPassword.addEventListener('click', async (e) => {
     e.preventDefault();
+    console.log('🔄 Forgot Password clicked!');
+    
     const email = document.getElementById('loginEmail').value;
-    if (!email) return showToast('Enter email first', 'error');
+    console.log('📧 Email entered:', email);
+    
+    if (!email) {
+        console.warn('⚠️ No email entered');
+        return showToast('Enter email first', 'error');
+    }
+    
     try {
+        console.log('📤 Sending password reset email to:', email);
         await sendPasswordResetEmail(auth, email);
-        showToast('Reset email sent!', 'success');
+        console.log('✅ Firebase says email sent successfully!');
+        showToast('Reset email sent! Check your inbox and spam folder.', 'success');
     } catch (error) {
+        console.error('❌ Error sending reset email:', error);
+        console.error('Error code:', error.code);
+        console.error('Error message:', error.message);
         showToast(error.message, 'error');
     }
 });
@@ -708,11 +721,25 @@ async function loadProfileSettings() {
 
 
 async function resetPassword() {
-    if (!currentUser) return;
+    console.log('🔄 Reset Password button clicked!');
+    console.log('👤 Current user:', currentUser);
+    
+    if (!currentUser) {
+        console.error('❌ No user logged in!');
+        showToast('Please login first', 'error');
+        return;
+    }
+    
+    console.log('📧 Sending reset email to:', currentUser.email);
+    
     try {
         await sendPasswordResetEmail(auth, currentUser.email);
-        showToast('Password reset email sent!', 'success');
+        console.log('✅ Firebase says email sent successfully!');
+        showToast('Password reset email sent! Check your inbox and spam folder.', 'success');
     } catch (error) {
+        console.error('❌ Error sending reset email:', error);
+        console.error('Error code:', error.code);
+        console.error('Error message:', error.message);
         showToast(error.message, 'error');
     }
 }
