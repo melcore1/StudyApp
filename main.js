@@ -20,7 +20,9 @@ import {
     where,
     orderBy,
     serverTimestamp,
-    onSnapshot
+    onSnapshot,
+    setDoc,
+    getDoc
 } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
 import { firebaseConfig } from './firebase-config.js';
 
@@ -29,6 +31,7 @@ let currentUser = null;
 let assignments = [];
 let chatHistory = [];
 let metrics = { totalCost: 0, totalTokens: 0, chats: 0 };
+let userProfile = { name: '', email: '' };
 
 // ===== CONFIGURATION =====
 const OPENROUTER_KEY = "sk-or-v1-YOUR_OPENROUTER_API_KEY_HERE";
@@ -78,18 +81,52 @@ const elements = {
 };
 
 // ===== AUTHENTICATION STATE =====
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, async (user) => {
     if (user) {
         currentUser = user;
+        await loadUserProfile();
         setupRealtimeListeners();
         showPage('homePage');
         updateProfileInfo();
         loadChatHistory();
     } else {
         currentUser = null;
+        userProfile = { name: '', email: '' };
         showPage('loginPage');
     }
 });
+
+// ===== USER PROFILE MANAGEMENT =====
+async function loadUserProfile() {
+    if (!currentUser) return;
+    
+    try {
+        // Try to load from Firestore first
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        if (userDoc.exists()) {
+            userProfile = userDoc.data();
+        } else {
+            // If no Firestore doc, create one from auth data
+            const name = currentUser.displayName || currentUser.email.split('@')[0];
+            userProfile = {
+                name: name,
+                email: currentUser.email,
+                createdAt: serverTimestamp()
+            };
+            await setDoc(doc(db, 'users', currentUser.uid), userProfile);
+        }
+        
+        // Update localStorage for quick access
+        localStorage.setItem('userName', userProfile.name);
+    } catch (error) {
+        console.error('Error loading user profile:', error);
+        // Fallback to auth data
+        userProfile = {
+            name: currentUser.displayName || currentUser.email.split('@')[0],
+            email: currentUser.email
+        };
+    }
+}
 
 // ===== REALTIME LISTENERS =====
 function setupRealtimeListeners() {
@@ -168,6 +205,14 @@ elements.registerForm.addEventListener('submit', async (e) => {
         showToast('Creating account...', 'info');
         const result = await createUserWithEmailAndPassword(auth, email, password);
         await updateProfile(result.user, { displayName: name });
+        
+        // Store user profile in Firestore
+        await setDoc(doc(db, 'users', result.user.uid), {
+            name: name,
+            email: email,
+            createdAt: serverTimestamp()
+        });
+        
         localStorage.setItem('userName', name);
         showToast('Account created!', 'success');
     } catch (error) {
@@ -195,6 +240,7 @@ elements.logoutBtn.addEventListener('click', async () => {
         await signOut(auth);
         showToast('Logged out', 'success');
         localStorage.removeItem('userName');
+        userProfile = { name: '', email: '' };
     } catch (error) {
         showToast(error.message, 'error');
     }
@@ -361,10 +407,10 @@ function animateCounter(element, targetValue) {
 }
 
 function loadHomePageData() {
-    if (!currentUser) return;
+    if (!currentUser || !userProfile) return;
     
-    // Greeting
-    const name = localStorage.getItem('userName') || currentUser.displayName || currentUser.email.split('@')[0];
+    // Greeting with actual name from Firestore
+    const name = userProfile.name || 'Student';
     elements.homeGreeting.textContent = `Welcome back, ${name}!`;
     
     // Stats
@@ -412,7 +458,7 @@ function getTimeAgo(timestamp) {
 
 // ===== PROFILE SETTINGS =====
 function loadProfileSettings() {
-    if (!currentUser) return;
+    if (!currentUser || !userProfile) return;
     
     const settingsContainer = elements.profileSettings;
     const accountCreated = currentUser.metadata.creationTime ? 
@@ -474,22 +520,16 @@ function loadProfileSettings() {
         darkModeToggle.checked = savedDarkMode;
         darkModeToggle.addEventListener('change', (e) => {
             if (e.target.checked) {
-                document.body.style.background = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
-                document.body.style.color = '#f1f5f9';
                 document.body.setAttribute('data-theme', 'dark');
             } else {
-                document.body.style.background = 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)';
-                document.body.style.color = '#1e293b';
                 document.body.removeAttribute('data-theme');
             }
             localStorage.setItem('darkMode', e.target.checked);
         });
     }
     
-    // Apply saved dark mode on page load
+    // Apply saved dark mode
     if (savedDarkMode) {
-        document.body.style.background = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
-        document.body.style.color = '#f1f5f9';
         document.body.setAttribute('data-theme', 'dark');
     }
 }
@@ -515,6 +555,9 @@ async function deleteAccount() {
         const snapshot = await getDocs(q);
         const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
         await Promise.all(deletePromises);
+        
+        // Delete user profile
+        await deleteDoc(doc(db, 'users', currentUser.uid));
         
         showToast('Account deleted', 'success');
         await signOut(auth);
@@ -636,12 +679,13 @@ function showToast(message, type = 'info') {
 }
 
 function updateProfileInfo() {
-    if (!currentUser) return;
+    if (!currentUser || !userProfile) return;
     
-    const name = localStorage.getItem('userName') || currentUser.displayName || currentUser.email.split('@')[0];
+    const name = userProfile.name || 'Student';
+    const email = userProfile.email || currentUser.email;
     
     if (elements.profileName) elements.profileName.textContent = name;
-    if (elements.profileEmail) elements.profileEmail.textContent = currentUser.email;
+    if (elements.profileEmail) elements.profileEmail.textContent = email;
     if (elements.profileAvatar) elements.profileAvatar.textContent = name.charAt(0).toUpperCase();
     if (elements.homeGreeting) elements.homeGreeting.textContent = `Welcome back, ${name}!`;
 }
@@ -650,6 +694,11 @@ function updateProfileInfo() {
 document.addEventListener('DOMContentLoaded', () => {
     const savedMetrics = localStorage.getItem('appMetrics');
     if (savedMetrics) metrics = JSON.parse(savedMetrics);
+    
+    const savedDarkMode = localStorage.getItem('darkMode') === 'true';
+    if (savedDarkMode) {
+        document.body.setAttribute('data-theme', 'dark');
+    }
     
     const sharedNav = document.getElementById('sharedBottomNav');
     sharedNav.style.display = 'none';
