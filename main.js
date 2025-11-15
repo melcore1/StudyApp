@@ -83,13 +83,19 @@ const elements = {
 
 // ===== AUTHENTICATION STATE =====
 onAuthStateChanged(auth, async (user) => {
+    console.log('Auth state changed:', user ? 'Logged in' : 'Logged out');
+    
     if (user) {
         currentUser = user;
         await loadUserProfile();
         setupRealtimeListeners();
-        showPage('homePage');
-        updateProfileInfo();
-        loadChatHistory();
+        
+        // FIX: Ensure we navigate to home page after auth with small delay
+        setTimeout(() => {
+            showPage('homePage');
+            updateProfileInfo();
+            loadChatHistory();
+        }, 100);
     } else {
         currentUser = null;
         userProfile = { name: '', email: '' };
@@ -151,20 +157,26 @@ function setupRealtimeListeners() {
 
 // ===== PAGE NAVIGATION =====
 function showPage(pageId) {
+    console.log('Navigating to:', pageId);
+    
     document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
     const targetPage = document.getElementById(pageId);
-    if (!targetPage) return; // Safety check
+    if (!targetPage) {
+        console.error('Target page not found:', pageId);
+        return;
+    }
     
     targetPage.classList.add('active');
     
-    // FIX: Add null check for nav bar
     const sharedNav = document.getElementById('sharedBottomNav');
     if (sharedNav) {
         const isAuthPage = targetPage.classList.contains('auth-page');
         sharedNav.style.display = isAuthPage ? 'none' : 'flex';
     }
     
-    document.querySelectorAll('#sharedBottomNav .nav-item').forEach(item => {
+    // FIX: Update nav items only if nav exists
+    const navItems = document.querySelectorAll('#sharedBottomNav .nav-item');
+    navItems.forEach(item => {
         item.classList.remove('active');
         if (item.dataset.page === pageId) item.classList.add('active');
     });
@@ -190,11 +202,24 @@ elements.loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
+    
     try {
         showToast('Logging in...', 'info');
-        await signInWithEmailAndPassword(auth, email, password);
+        console.log('Attempting login...');
+        
+        // FIX: Store the result and wait for auth state change
+        const result = await signInWithEmailAndPassword(auth, email, password);
+        console.log('Login successful:', result.user.uid);
+        
+        // Give auth state change time to process
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Explicitly navigate to home page
+        showPage('homePage');
         showToast('Welcome back!', 'success');
+        
     } catch (error) {
+        console.error('Login error:', error);
         showToast(error.message, 'error');
     }
 });
@@ -604,7 +629,7 @@ async function sendMessage() {
     const message = elements.chatInput.value.trim();
     if (!message) return;
     
-    // NEW: Input validation
+    // Input validation
     if (message.length < 2) {
         showToast('Message too short', 'error');
         return;
@@ -814,4 +839,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (sharedNav) {
         sharedNav.style.display = 'none';
     }
+    
+    console.log('App initialized');
 });
