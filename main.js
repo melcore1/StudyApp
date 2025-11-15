@@ -101,12 +101,10 @@ async function loadUserProfile() {
     if (!currentUser) return;
     
     try {
-        // Try to load from Firestore first
         const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
         if (userDoc.exists()) {
             userProfile = userDoc.data();
         } else {
-            // If no Firestore doc, create one from auth data
             const name = currentUser.displayName || currentUser.email.split('@')[0];
             userProfile = {
                 name: name,
@@ -116,11 +114,9 @@ async function loadUserProfile() {
             await setDoc(doc(db, 'users', currentUser.uid), userProfile);
         }
         
-        // Update localStorage for quick access
         localStorage.setItem('userName', userProfile.name);
     } catch (error) {
         console.error('Error loading user profile:', error);
-        // Fallback to auth data
         userProfile = {
             name: currentUser.displayName || currentUser.email.split('@')[0],
             email: currentUser.email
@@ -132,11 +128,21 @@ async function loadUserProfile() {
 function setupRealtimeListeners() {
     if (!currentUser) return;
     
+    // IMPORTANT: This query requires a Firestore composite index!
+    // If assignments don't load, check your browser console for an error link
+    // to create the index automatically, or follow the manual steps below.
+    
     const assignmentsQuery = query(
         collection(db, 'assignments'),
         where('userId', '==', currentUser.uid),
-        orderBy('updatedAt', 'desc')
+        orderBy('updatedAt', 'desc')  // Requires composite index
     );
+    
+    // TEMPORARY DEBUG QUERY (remove orderBy to test without index):
+    // const assignmentsQuery = query(
+    //     collection(db, 'assignments'),
+    //     where('userId', '==', currentUser.uid)
+    // );
     
     onSnapshot(assignmentsQuery, (snapshot) => {
         assignments = [];
@@ -146,8 +152,15 @@ function setupRealtimeListeners() {
         renderAssignments(assignments);
         updateHomeStats();
         loadHomePageData();
+        console.log(`Loaded ${assignments.length} assignments`); // Debug log
     }, (error) => {
         console.error('Assignments listener error:', error);
+        showToast(`Failed to load assignments: ${error.message}`, 'error');
+        
+        // Show helpful index creation link from error
+        if (error.message.includes('index')) {
+            showToast('Create required Firestore index (check console)', 'error');
+        }
     });
 }
 
@@ -206,7 +219,6 @@ elements.registerForm.addEventListener('submit', async (e) => {
         const result = await createUserWithEmailAndPassword(auth, email, password);
         await updateProfile(result.user, { displayName: name });
         
-        // Store user profile in Firestore
         await setDoc(doc(db, 'users', result.user.uid), {
             name: name,
             email: email,
@@ -303,6 +315,7 @@ async function addAssignment(data) {
         showToast('Assignment added!', 'success');
     } catch (error) {
         showToast(error.message, 'error');
+        console.error('Add assignment error:', error); // Debug log
     }
 }
 
@@ -318,6 +331,7 @@ async function toggleAssignmentStatus(id, currentStatus) {
         showToast(`Marked as ${newStatus}`, 'success');
     } catch (error) {
         showToast(error.message, 'error');
+        console.error('Toggle status error:', error); // Debug log
     }
 }
 
@@ -330,6 +344,7 @@ async function deleteAssignment(id) {
         showToast('Assignment deleted', 'success');
     } catch (error) {
         showToast(error.message, 'error');
+        console.error('Delete error:', error); // Debug log
     }
 }
 
@@ -384,7 +399,6 @@ function updateHomeStats() {
         return updatedDate.toDateString() === today;
     }).length;
     
-    // Animate counters
     animateCounter(elements.activeCount, active);
     animateCounter(elements.completedCount, completedToday);
     animateCounter(elements.totalCount, assignments.length);
@@ -409,14 +423,11 @@ function animateCounter(element, targetValue) {
 function loadHomePageData() {
     if (!currentUser || !userProfile) return;
     
-    // Greeting with actual name from Firestore
     const name = userProfile.name || 'Student';
     elements.homeGreeting.textContent = `Welcome back, ${name}!`;
     
-    // Stats
     updateHomeStats();
     
-    // Recent activity (last 5 assignments)
     const recentAssignments = assignments.slice(0, 5);
     const recentList = elements.recentActivityList;
     
@@ -464,7 +475,6 @@ function loadProfileSettings() {
     const accountCreated = currentUser.metadata.creationTime ? 
         new Date(currentUser.metadata.creationTime).toLocaleDateString() : 'Unknown';
     
-    // Load user metrics
     const userMetrics = {
         totalChats: chatHistory.length,
         totalTokens: metrics.totalTokens,
@@ -513,7 +523,6 @@ function loadProfileSettings() {
         </div>
     `;
     
-    // Dark mode toggle
     const darkModeToggle = document.getElementById('darkModeToggle');
     const savedDarkMode = localStorage.getItem('darkMode') === 'true';
     if (darkModeToggle) {
@@ -528,7 +537,6 @@ function loadProfileSettings() {
         });
     }
     
-    // Apply saved dark mode
     if (savedDarkMode) {
         document.body.setAttribute('data-theme', 'dark');
     }
@@ -550,13 +558,11 @@ async function deleteAccount() {
     
     try {
         showToast('Deleting account...', 'info');
-        // Delete user assignments
         const q = query(collection(db, 'assignments'), where('userId', '==', currentUser.uid));
         const snapshot = await getDocs(q);
         const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
         await Promise.all(deletePromises);
         
-        // Delete user profile
         await deleteDoc(doc(db, 'users', currentUser.uid));
         
         showToast('Account deleted', 'success');
