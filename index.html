@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=393, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#6366f1">
     <title>StudyApp</title>
     <style>
@@ -22,6 +22,10 @@
             --warning-text: #d97706;
             --error-bg: #fee2e2;
             --error-text: #dc2626;
+            --iphone-width: 393px;
+            --iphone-height: 852px;
+            --iphone-radius: 40px;
+            --iphone-frame: #000;
         }
 
         [data-theme="dark"] {
@@ -51,25 +55,105 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: var(--bg-primary);
+            background: #000; /* Black backdrop */
             color: var(--text-primary);
             transition: background 0.3s, color 0.3s;
+        }
+        
+        /* iPhone 16 Pro Frame (Desktop Only) */
+        .iphone-frame {
+            width: var(--iphone-width);
+            height: var(--iphone-height);
+            background: var(--iphone-frame);
+            border-radius: var(--iphone-radius);
+            position: relative;
+            margin: 0 auto;
+            box-shadow: 0 0 60px rgba(0, 0, 0, 0.8);
+            overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
         }
         
-        /* Mobile Container - iPhone 16 Pro size (393px width) */
+        /* Dynamic Island Notch */
+        .iphone-notch {
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 126px;
+            height: 37px;
+            background: var(--iphone-frame);
+            border-radius: 20px;
+            z-index: 1001;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* Side Buttons */
+        .iphone-buttons {
+            position: absolute;
+            left: -2px;
+            top: 140px;
+            width: 2px;
+            height: 60px;
+            background: var(--iphone-frame);
+            border-radius: 2px;
+        }
+        
+        .iphone-buttons::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: -60px;
+            width: 2px;
+            height: 40px;
+            background: var(--iphone-frame);
+            border-radius: 2px;
+        }
+        
+        .iphone-buttons::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 80px;
+            width: 2px;
+            height: 40px;
+            background: var(--iphone-frame);
+            border-radius: 2px;
+        }
+        
+        /* Power Button */
+        .iphone-power {
+            position: absolute;
+            right: -2px;
+            top: 160px;
+            width: 2px;
+            height: 80px;
+            background: var(--iphone-frame);
+            border-radius: 2px;
+        }
+        
+        /* Home Indicator */
+        .iphone-home-indicator {
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 140px;
+            height: 5px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+            z-index: 1001;
+        }
+        
+        /* App Container */
         .mobile-container {
-            width: 393px;
-            height: 852px;
-            max-width: 100vw;
-            max-height: 100vh;
-            position: relative;
+            width: calc(var(--iphone-width) - 8px);
+            height: calc(var(--iphone-height) - 8px);
             background: var(--card-bg);
-            box-shadow: 0 0 40px rgba(0, 0, 0, 0.1);
+            border-radius: calc(var(--iphone-radius) - 4px);
             overflow: hidden;
-            border-radius: 0;
+            position: relative;
         }
         
         .page {
@@ -172,9 +256,6 @@
             padding: 10px 0;
             z-index: 1000;
             box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
-            width: 393px;
-            max-width: 100vw;
-            margin: 0 auto;
         }
         
         .nav-item {
@@ -284,11 +365,9 @@
         
         .chat-input-container {
             position: fixed;
-            bottom: 70px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 393px;
-            max-width: 100vw;
+            bottom: 0;
+            left: 0;
+            right: 0;
             background: var(--card-bg);
             border-top: 1px solid var(--border-color);
             padding: 12px;
@@ -409,14 +488,14 @@
         
         .toast {
             position: fixed;
-            top: 20px;
+            top: 60px;
             left: 50%;
             transform: translateX(-50%);
             background: var(--text-primary);
             color: var(--card-bg);
             padding: 12px 20px;
             border-radius: 8px;
-            z-index: 2000;
+            z-index: 3000;
             opacity: 0;
             transition: all 0.3s;
             pointer-events: none;
@@ -504,8 +583,7 @@
         .add-assignment-btn {
             position: fixed;
             bottom: 90px;
-            right: 50%;
-            transform: translateX(175px);
+            right: 20px;
             width: 56px;
             height: 56px;
             border-radius: 50%;
@@ -541,7 +619,7 @@
             border-radius: 16px;
             padding: 24px;
             width: 100%;
-            max-width: 393px;
+            max-width: 350px;
             max-height: 80vh;
             overflow-y: auto;
         }
@@ -637,250 +715,281 @@
             border-radius: 2px;
         }
         
-        /* Desktop centering fallback */
-        @media (min-width: 394px) {
+        /* MOBILE VIEW (No Frame) */
+        @media (max-width: 768px) {
             body {
-                background: #1e293b; /* Dark background outside mobile frame */
+                background: var(--bg-primary);
+            }
+            
+            .iphone-frame {
+                width: 100vw !important;
+                height: 100vh !important;
+                border-radius: 0 !important;
+                box-shadow: none !important;
+            }
+            
+            .iphone-notch,
+            .iphone-home-indicator,
+            .iphone-buttons,
+            .iphone-power {
+                display: none !important;
+            }
+            
+            .mobile-container {
+                width: 100vw !important;
+                height: 100vh !important;
+                border-radius: 0 !important;
             }
         }
         
-        /* Very small screens */
-        @media (max-width: 393px) {
-            .mobile-container {
-                width: 100vw;
-                height: 100vh;
+        /* DESKTOP VIEW (With iPhone Frame) */
+        @media (min-width: 769px) {
+            body {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                overflow: auto;
+                padding: 20px;
             }
-            .bottom-nav, .chat-input-container, .add-assignment-btn {
-                width: 100vw !important;
+            
+            .iphone-frame {
+                flex-shrink: 0;
+                position: relative;
+            }
+            
+            /* Scale down on small desktops */
+            @media (max-height: 900px) {
+                .iphone-frame {
+                    transform: scale(0.9);
+                    transform-origin: center;
+                }
+            }
+            
+            @media (max-height: 800px) {
+                .iphone-frame {
+                    transform: scale(0.8);
+                }
+            }
+            
+            @media (max-height: 700px) {
+                .iphone-frame {
+                    transform: scale(0.7);
+                }
             }
         }
     </style>
 </head>
 <body>
-    <!-- Mobile Container -->
-    <div class="mobile-container">
-        <!-- LOGIN PAGE -->
-        <div id="loginPage" class="page active auth-page">
-            <div class="login-container">
-                <div class="logo">
-                    <h1>📚 StudyApp</h1>
-                    <p>Your AI-powered learning companion</p>
-                </div>
-                <form id="loginForm">
-                    <div class="form-group">
-                        <label for="loginEmail">Email</label>
-                        <input type="email" id="loginEmail" required placeholder="you@example.com">
+    <!-- iPhone 16 Pro Frame (Desktop) / Full Screen (Mobile) -->
+    <div class="iphone-frame">
+        <!-- Dynamic Island Notch -->
+        <div class="iphone-notch"></div>
+        
+        <!-- Side Buttons -->
+        <div class="iphone-buttons"></div>
+        <div class="iphone-power"></div>
+        
+        <!-- App Container -->
+        <div class="mobile-container">
+            <!-- LOGIN PAGE -->
+            <div id="loginPage" class="page active auth-page">
+                <div class="login-container">
+                    <div class="logo">
+                        <h1>📚 StudyApp</h1>
+                        <p>Your AI-powered learning companion</p>
                     </div>
-                    <div class="form-group">
-                        <label for="loginPassword">Password</label>
-                        <input type="password" id="loginPassword" required placeholder="••••••••">
+                    <form id="loginForm">
+                        <div class="form-group">
+                            <label for="loginEmail">Email</label>
+                            <input type="email" id="loginEmail" required placeholder="you@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="loginPassword">Password</label>
+                            <input type="password" id="loginPassword" required placeholder="••••••••">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Login</button>
+                        <button type="button" class="btn btn-secondary" id="showRegister">Create Account</button>
+                    </form>
+                    <div class="forgot-password">
+                        <a href="#" id="forgotPassword">Forgot Password?</a>
                     </div>
-                    <button type="submit" class="btn btn-primary">Login</button>
-                    <button type="button" class="btn btn-secondary" id="showRegister">Create Account</button>
-                </form>
-                <div class="forgot-password">
-                    <a href="#" id="forgotPassword">Forgot Password?</a>
                 </div>
             </div>
-        </div>
 
-        <!-- REGISTER PAGE -->
-        <div id="registerPage" class="page auth-page">
-            <div class="login-container">
-                <div class="logo">
-                    <h1>Create Account</h1>
-                    <p>Join StudyApp today</p>
-                </div>
-                <form id="registerForm">
-                    <div class="form-group">
-                        <label for="registerName">Full Name</label>
-                        <input type="text" id="registerName" required placeholder="John Doe">
+            <!-- REGISTER PAGE -->
+            <div id="registerPage" class="page auth-page">
+                <div class="login-container">
+                    <div class="logo">
+                        <h1>Create Account</h1>
+                        <p>Join StudyApp today</p>
                     </div>
-                    <div class="form-group">
-                        <label for="registerEmail">Email</label>
-                        <input type="email" id="registerEmail" required placeholder="you@example.com">
-                    </div>
-                    <div class="form-group">
-                        <label for="registerPassword">Password</label>
-                        <input type="password" id="registerPassword" required placeholder="Min 6 characters">
-                    </div>
-                    <button type="submit" class="btn btn-primary">Register</button>
-                    <button type="button" class="btn btn-secondary" id="showLogin">Back to Login</button>
-                </form>
-            </div>
-        </div>
-
-        <!-- HOME PAGE -->
-        <div id="homePage" class="page">
-            <div class="page-content">
-                <div class="page-header">
-                    <div>
-                        <h2 id="homeGreeting">Welcome back!</h2>
-                        <p>What would you like to learn today?</p>
-                    </div>
-                </div>
-                
-                <!-- Stats Grid -->
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-number" id="activeCount">0</div>
-                        <div class="stat-label">Active</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-number" id="completedCount">0</div>
-                        <div class="stat-label">Completed Today</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-number" id="totalCount">0</div>
-                        <div class="stat-label">Total</div>
-                    </div>
-                </div>
-
-                <!-- Search Bar -->
-                <input type="text" class="search-bar" id="searchAssignments" placeholder="Search assignments...">
-
-                <!-- Recent Activity -->
-                <div class="recent-activity">
-                    <h3 style="margin-bottom: 12px;">Recent Activity</h3>
-                    <div id="recentActivityList"></div>
+                    <form id="registerForm">
+                        <div class="form-group">
+                            <label for="registerName">Full Name</label>
+                            <input type="text" id="registerName" required placeholder="John Doe">
+                        </div>
+                        <div class="form-group">
+                            <label for="registerEmail">Email</label>
+                            <input type="email" id="registerEmail" required placeholder="you@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="registerPassword">Password</label>
+                            <input type="password" id="registerPassword" required placeholder="Min 6 characters">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Register</button>
+                        <button type="button" class="btn btn-secondary" id="showLogin">Back to Login</button>
+                    </form>
                 </div>
             </div>
-        </div>
 
-        <!-- ASSIGNMENTS PAGE -->
-        <div id="assignmentsPage" class="page">
-            <div class="page-content">
-                <div class="page-header">
-                    <div>
-                        <h2>My Assignments</h2>
-                        <p>Track your progress</p>
+            <!-- HOME PAGE -->
+            <div id="homePage" class="page">
+                <div class="page-content">
+                    <div class="page-header">
+                        <div>
+                            <h2 id="homeGreeting">Welcome back!</h2>
+                            <p>What would you like to learn today?</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Stats Grid -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-number" id="activeCount">0</div>
+                            <div class="stat-label">Active</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number" id="completedCount">0</div>
+                            <div class="stat-label">Completed Today</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number" id="totalCount">0</div>
+                            <div class="stat-label">Total</div>
+                        </div>
+                    </div>
+
+                    <!-- Search Bar -->
+                    <input type="text" class="search-bar" id="searchAssignments" placeholder="Search assignments...">
+
+                    <!-- Recent Activity -->
+                    <div class="recent-activity">
+                        <h3 style="margin-bottom: 12px;">Recent Activity</h3>
+                        <div id="recentActivityList"></div>
                     </div>
                 </div>
-                <div id="assignmentsList"></div>
             </div>
-            <!-- Add Assignment Floating Button -->
-            <button class="add-assignment-btn" id="addAssignmentBtn">+</button>
-        </div>
 
-        <!-- CHAT AI PAGE -->
-        <div id="chatPage" class="page">
-            <div class="chat-container">
-                <div class="chat-messages" id="chatMessages"></div>
-                <div class="metrics-bar" id="metricsBar" style="display: none;">
-                    <div class="metric-item">
-                        <span>💰</span>
-                        <span>Cost: $<strong id="costMetric">0.0000</strong></span>
+            <!-- ASSIGNMENTS PAGE -->
+            <div id="assignmentsPage" class="page">
+                <div class="page-content">
+                    <div class="page-header">
+                        <div>
+                            <h2>My Assignments</h2>
+                            <p>Track your progress</p>
+                        </div>
                     </div>
-                    <div class="metric-item">
-                        <span>⚡</span>
-                        <span>Speed: <strong id="speedMetric">0</strong> t/s</span>
+                    <div id="assignmentsList"></div>
+                </div>
+                <!-- Add Assignment Floating Button -->
+                <button class="add-assignment-btn" id="addAssignmentBtn">+</button>
+            </div>
+
+            <!-- CHAT AI PAGE -->
+            <div id="chatPage" class="page">
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages"></div>
+                    <div class="metrics-bar" id="metricsBar" style="display: none;">
+                        <div class="metric-item">
+                            <span>💰</span>
+                            <span>Cost: $<strong id="costMetric">0.0000</strong></span>
+                        </div>
+                        <div class="metric-item">
+                            <span>⚡</span>
+                            <span>Speed: <strong id="speedMetric">0</strong> t/s</span>
+                        </div>
+                        <div class="metric-item">
+                            <span>📝</span>
+                            <span>Tokens: <strong id="tokensMetric">0</strong></span>
+                        </div>
                     </div>
-                    <div class="metric-item">
-                        <span>📝</span>
-                        <span>Tokens: <strong id="tokensMetric">0</strong></span>
+                    <div class="chat-input-container">
+                        <input 
+                            type="text" 
+                            class="chat-input" 
+                            id="chatInput" 
+                            placeholder="Ask anything..."
+                            maxlength="2000"
+                        >
+                        <button class="send-btn" id="sendBtn">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+                                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                            </svg>
+                        </button>
                     </div>
                 </div>
-                <div class="chat-input-container">
-                    <input 
-                        type="text" 
-                        class="chat-input" 
-                        id="chatInput" 
-                        placeholder="Ask anything..."
-                        maxlength="2000"
-                    >
-                    <button class="send-btn" id="sendBtn">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-                            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                        </svg>
+            </div>
+
+            <!-- PROFILE PAGE -->
+            <div id="profilePage" class="page">
+                <div class="page-content">
+                    <div class="profile-header">
+                        <div class="profile-avatar" id="profileAvatar">U</div>
+                        <div class="profile-info">
+                            <h3 id="profileName">User</h3>
+                            <p id="profileEmail">Loading...</p>
+                        </div>
+                    </div>
+                    <!-- Profile Settings Container -->
+                    <div id="profileSettings"></div>
+                    <button class="btn btn-secondary" id="logoutBtn" style="margin-top: 20px;">
+                        Logout
                     </button>
                 </div>
             </div>
-        </div>
 
-        <!-- PROFILE PAGE -->
-        <div id="profilePage" class="page">
-            <div class="page-content">
-                <div class="profile-header">
-                    <div class="profile-avatar" id="profileAvatar">U</div>
-                    <div class="profile-info">
-                        <h3 id="profileName">User</h3>
-                        <p id="profileEmail">Loading...</p>
+            <!-- ADD ASSIGNMENT MODAL -->
+            <div class="modal" id="addAssignmentModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>Add New Assignment</h3>
+                        <button class="close-modal" id="closeModal">×</button>
                     </div>
+                    <form id="addAssignmentForm">
+                        <div class="form-group">
+                            <label for="assignmentTitle">Title</label>
+                            <input type="text" id="assignmentTitle" required placeholder="Math Homework">
+                        </div>
+                        <div class="form-group">
+                            <label for="assignmentDescription">Description (optional)</label>
+                            <textarea id="assignmentDescription" placeholder="Chapter 5 problems..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="assignmentDueDate">Due Date</label>
+                            <input type="date" id="assignmentDueDate" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="assignmentSubject">Subject</label>
+                            <select id="assignmentSubject">
+                                <option value="Math">Math</option>
+                                <option value="Science">Science</option>
+                                <option value="History">History</option>
+                                <option value="English">English</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Add Assignment</button>
+                    </form>
                 </div>
-                <!-- Profile Settings Container -->
-                <div id="profileSettings"></div>
-                <button class="btn btn-secondary" id="logoutBtn" style="margin-top: 20px;">
-                    Logout
-                </button>
             </div>
-        </div>
 
-        <!-- ADD ASSIGNMENT MODAL -->
-        <div class="modal" id="addAssignmentModal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>Add New Assignment</h3>
-                    <button class="close-modal" id="closeModal">×</button>
-                </div>
-                <form id="addAssignmentForm">
-                    <div class="form-group">
-                        <label for="assignmentTitle">Title</label>
-                        <input type="text" id="assignmentTitle" required placeholder="Math Homework">
-                    </div>
-                    <div class="form-group">
-                        <label for="assignmentDescription">Description (optional)</label>
-                        <textarea id="assignmentDescription" placeholder="Chapter 5 problems..."></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label for="assignmentDueDate">Due Date</label>
-                        <input type="date" id="assignmentDueDate" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="assignmentSubject">Subject</label>
-                        <select id="assignmentSubject">
-                            <option value="Math">Math</option>
-                            <option value="Science">Science</option>
-                            <option value="History">History</option>
-                            <option value="English">English</option>
-                            <option value="Other">Other</option>
-                        </select>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Add Assignment</button>
-                </form>
-            </div>
+            <!-- TOAST NOTIFICATION -->
+            <div id="toast" class="toast"></div>
         </div>
-
-        <!-- TOAST NOTIFICATION -->
-        <div id="toast" class="toast"></div>
+        
+        <!-- Home Indicator -->
+        <div class="iphone-home-indicator"></div>
     </div>
-
-    <!-- SHARED BOTTOM NAVIGATION -->
-    <nav class="bottom-nav" id="sharedBottomNav">
-        <a class="nav-item active" data-page="homePage">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
-            </svg>
-            <span>Home</span>
-        </a>
-        <a class="nav-item" data-page="assignmentsPage">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
-            </svg>
-            <span>Assignments</span>
-        </a>
-        <a class="nav-item" data-page="chatPage">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
-            </svg>
-            <span>AI Chat</span>
-        </a>
-        <a class="nav-item" data-page="profilePage">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
-            </svg>
-            <span>Profile</span>
-        </a>
-    </nav>
 
     <script type="module" src="main.js"></script>
 </body>
