@@ -84,14 +84,12 @@ const elements = {
 onAuthStateChanged(auth, async (user) => {
     if (user) {
         currentUser = user;
-        console.log("Auth state: User logged in:", currentUser.uid);
         await loadUserProfile();
         setupRealtimeListeners();
         showPage('homePage');
         updateProfileInfo();
         loadChatHistory();
     } else {
-        console.log("Auth state: No user");
         currentUser = null;
         userProfile = { name: '', email: '' };
         showPage('loginPage');
@@ -106,7 +104,6 @@ async function loadUserProfile() {
         const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
         if (userDoc.exists()) {
             userProfile = userDoc.data();
-            console.log("User profile loaded:", userProfile);
         } else {
             const name = currentUser.displayName || currentUser.email.split('@')[0];
             userProfile = {
@@ -115,7 +112,6 @@ async function loadUserProfile() {
                 createdAt: serverTimestamp()
             };
             await setDoc(doc(db, 'users', currentUser.uid), userProfile);
-            console.log("User profile created in Firestore");
         }
         
         localStorage.setItem('userName', userProfile.name);
@@ -132,49 +128,28 @@ async function loadUserProfile() {
 function setupRealtimeListeners() {
     if (!currentUser) return;
     
-    console.log("Setting up assignments listener for user:", currentUser.uid);
-    
-    // IMPORTANT: This query requires a Firestore composite index with EXACTLY these 2 fields:
-    // 1. userId (Ascending)
-    // 2. updatedAt (Descending)
-    
     const assignmentsQuery = query(
         collection(db, 'assignments'),
         where('userId', '==', currentUser.uid),
         orderBy('updatedAt', 'desc')
     );
     
-    // DEBUG: Log the query being used
-    console.log("Assignments query created");
-    
     onSnapshot(assignmentsQuery, (snapshot) => {
-        console.log("Assignments snapshot received:", snapshot.docs.length, "documents");
         assignments = [];
         snapshot.forEach(doc => {
             assignments.push({ id: doc.id, ...doc.data() });
-            console.log("Assignment loaded:", doc.id, doc.data());
         });
-        console.log("Total assignments:", assignments.length);
         renderAssignments(assignments);
         updateHomeStats();
         loadHomePageData();
     }, (error) => {
         console.error('Assignments listener error:', error);
-        console.error('Error code:', error.code);
         showToast(`Failed to load assignments: ${error.message}`, 'error');
-        
-        // Show helpful index creation link from error
-        if (error.message.includes('index')) {
-            showToast('Create required Firestore index (check console for link)', 'error');
-            console.log("Click this link to create the index automatically:");
-            console.log(`https://console.firebase.google.com/project/${firebaseConfig.projectId}/database/firestore/indexes?create_composite=ClNwcm9qZWN0L3N0dWR5YXBwL2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9hc3NpZ25tZW50cy9pbmRleGVzL0NJUWdPaklsSDBRAAAAAAAAAIAK`);
-        }
     });
 }
 
 // ===== PAGE NAVIGATION =====
 function showPage(pageId) {
-    console.log("Navigating to page:", pageId);
     document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
     const targetPage = document.getElementById(pageId);
     targetPage.classList.add('active');
@@ -282,12 +257,10 @@ elements.searchAssignments.addEventListener('input', (e) => {
 
 // ===== MODAL FUNCTIONALITY =====
 elements.addAssignmentBtn.addEventListener('click', () => {
-    console.log("Add assignment button clicked");
     elements.addAssignmentModal.classList.add('active');
 });
 
 elements.closeModal.addEventListener('click', () => {
-    console.log("Close modal clicked");
     elements.addAssignmentModal.classList.remove('active');
     elements.addAssignmentForm.reset();
 });
@@ -301,14 +274,10 @@ elements.addAssignmentModal.addEventListener('click', (e) => {
 
 elements.addAssignmentForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    console.log("Add assignment form submitted");
-    
     const title = document.getElementById('assignmentTitle').value;
     const description = document.getElementById('assignmentDescription').value;
     const dueDate = document.getElementById('assignmentDueDate').value;
     const subject = document.getElementById('assignmentSubject').value;
-    
-    console.log("Form data:", { title, description, dueDate, subject });
     
     await addAssignment({ title, description, dueDate, subject });
     elements.addAssignmentModal.classList.remove('active');
@@ -317,35 +286,19 @@ elements.addAssignmentForm.addEventListener('submit', async (e) => {
 
 // ===== ASSIGNMENTS CRUD =====
 async function addAssignment(data) {
-    if (!currentUser) {
-        console.error("No user logged in!");
-        showToast('You must be logged in', 'error');
-        return;
-    }
-    
+    if (!currentUser) return;
     try {
         showToast('Adding assignment...', 'info');
-        console.log("Adding assignment with data:", data);
-        
-        const assignmentData = {
+        await addDoc(collection(db, 'assignments'), {
             ...data,
             userId: currentUser.uid,
             status: 'pending',
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
-        };
-        
-        console.log("Full assignment data to save:", assignmentData);
-        
-        const docRef = await addDoc(collection(db, 'assignments'), assignmentData);
-        console.log("Assignment saved with ID:", docRef.id);
-        
+        });
         showToast('Assignment added!', 'success');
     } catch (error) {
-        console.error('Add assignment error:', error);
-        console.error('Error code:', error.code);
-        console.error('Error message:', error.message);
-        showToast(`Error: ${error.message}`, 'error');
+        showToast(error.message, 'error');
     }
 }
 
@@ -360,7 +313,6 @@ async function toggleAssignmentStatus(id, currentStatus) {
         });
         showToast(`Marked as ${newStatus}`, 'success');
     } catch (error) {
-        console.error('Toggle status error:', error);
         showToast(error.message, 'error');
     }
 }
@@ -373,16 +325,18 @@ async function deleteAssignment(id) {
         await deleteDoc(assignmentRef);
         showToast('Assignment deleted', 'success');
     } catch (error) {
-        console.error('Delete error:', error);
         showToast(error.message, 'error');
     }
 }
 
+// ===== NEW: RENDER ASSIGNMENTS WITH EVENT DELEGATION =====
 function renderAssignments(assignmentsToRender) {
-    console.log("Rendering assignments:", assignmentsToRender);
     const container = elements.assignmentsList;
+    
+    // Clear container and remove old listeners
+    container.innerHTML = '';
+    
     if (!assignmentsToRender || assignmentsToRender.length === 0) {
-        console.log("No assignments to render");
         container.innerHTML = `
             <div class="assignment-card">
                 <div class="assignment-title">No assignments yet</div>
@@ -392,34 +346,64 @@ function renderAssignments(assignmentsToRender) {
         return;
     }
     
-    console.log("Rendering", assignmentsToRender.length, "assignments");
+    // Create document fragment for better performance
+    const fragment = document.createDocumentFragment();
     
-    container.innerHTML = assignmentsToRender.map(assignment => {
+    assignmentsToRender.forEach(assignment => {
         const dueDate = assignment.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : 'No due date';
         const isOverdue = assignment.dueDate && new Date(assignment.dueDate) < new Date() && assignment.status === 'pending';
-        return `
-            <div class="assignment-card" style="${isOverdue ? 'border-left-color: #ef4444;' : ''}">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
-                    <div style="flex: 1;">
-                        <div class="assignment-title">${assignment.title}</div>
-                        <p class="assignment-meta">${assignment.dueDate ? 'Due: ' + dueDate : 'No due date'}</p>
-                        ${assignment.subject ? `<p class="assignment-meta">Subject: ${assignment.subject}</p>` : ''}
-                    </div>
-                    <div style="display: flex; gap: 8px;">
-                        <button onclick="toggleAssignmentStatus('${assignment.id}', '${assignment.status}')" style="background: none; border: none; cursor: pointer; font-size: 18px;" title="Toggle status">
-                            ${assignment.status === 'pending' ? '⭕' : '✅'}
-                        </button>
-                        <button onclick="deleteAssignment('${assignment.id}')" style="background: none; border: none; cursor: pointer; font-size: 18px;" title="Delete">
-                            🗑️
-                        </button>
-                    </div>
+        
+        // Create card element
+        const card = document.createElement('div');
+        card.className = 'assignment-card';
+        if (isOverdue) card.style.borderLeftColor = '#ef4444';
+        
+        card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: start;">
+                <div style="flex: 1;">
+                    <div class="assignment-title">${assignment.title}</div>
+                    <p class="assignment-meta">${assignment.dueDate ? 'Due: ' + dueDate : 'No due date'}</p>
+                    ${assignment.subject ? `<p class="assignment-meta">Subject: ${assignment.subject}</p>` : ''}
                 </div>
-                <span class="assignment-status status-${assignment.status}">${assignment.status === 'pending' ? 'In Progress' : 'Completed'}</span>
-                ${isOverdue ? '<p style="color: #ef4444; font-size: 12px; margin-top: 8px;">⚠️ Overdue</p>' : ''}
+                <div style="display: flex; gap: 8px;">
+                    <button class="assignment-action-btn" data-action="toggle" data-id="${assignment.id}" data-status="${assignment.status}" style="background: none; border: none; cursor: pointer; font-size: 18px;" title="Toggle status">
+                        ${assignment.status === 'pending' ? '⭕' : '✅'}
+                    </button>
+                    <button class="assignment-action-btn" data-action="delete" data-id="${assignment.id}" style="background: none; border: none; cursor: pointer; font-size: 18px;" title="Delete">
+                        🗑️
+                    </button>
+                </div>
             </div>
+            <span class="assignment-status status-${assignment.status}">${assignment.status === 'pending' ? 'In Progress' : 'Completed'}</span>
+            ${isOverdue ? '<p style="color: #ef4444; font-size: 12px; margin-top: 8px;">⚠️ Overdue</p>' : ''}
         `;
-    }).join('');
+        
+        fragment.appendChild(card);
+    });
+    
+    container.appendChild(fragment);
 }
+
+// ===== NEW: EVENT DELEGATION HANDLER =====
+function handleAssignmentAction(e) {
+    const button = e.target.closest('.assignment-action-btn');
+    if (!button) return;
+    
+    const action = button.dataset.action;
+    const id = button.dataset.id;
+    const status = button.dataset.status;
+    
+    console.log("Button clicked:", action, "ID:", id); // Debug log
+    
+    if (action === 'toggle') {
+        toggleAssignmentStatus(id, status);
+    } else if (action === 'delete') {
+        deleteAssignment(id);
+    }
+}
+
+// Add the event listener to the container (DO THIS ONLY ONCE)
+elements.assignmentsList.addEventListener('click', handleAssignmentAction);
 
 // ===== HOME PAGE DATA =====
 function updateHomeStats() {
