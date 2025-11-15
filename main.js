@@ -19,17 +19,19 @@ import {
     query,
     where,
     orderBy,
-    serverTimestamp
+    serverTimestamp,
+    onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
 import { firebaseConfig } from './firebase-config.js';
 
 // ===== APP STATE =====
 let currentUser = null;
+let assignments = [];
 let chatHistory = [];
 let metrics = { totalCost: 0, totalTokens: 0, chats: 0 };
 
 // ===== CONFIGURATION =====
-const OPENROUTER_KEY = "sk-or-v1-YOUR_OPENROUTER_API_KEY_HERE";
+const OPENROUTER_KEY = "sk-or-v1-YOUR_OPENROUTER_API_KEY";
 const AI_MODEL = "anthropic/claude-3.5-sonnet";
 const MODEL_PRICING = { input: 3.00, output: 15.00 };
 
@@ -78,15 +80,39 @@ const elements = {
 onAuthStateChanged(auth, (user) => {
     if (user) {
         currentUser = user;
+        setupRealtimeListeners();
         showPage('homePage');
         updateProfileInfo();
         loadChatHistory();
-        loadAssignments();
     } else {
         currentUser = null;
         showPage('loginPage');
     }
 });
+
+// ===== REALTIME LISTENERS =====
+function setupRealtimeListeners() {
+    if (!currentUser) return;
+    
+    // Listen to assignments changes in real-time
+    const assignmentsQuery = query(
+        collection(db, 'assignments'),
+        where('userId', '==', currentUser.uid),
+        orderBy('updatedAt', 'desc')
+    );
+    
+    onSnapshot(assignmentsQuery, (snapshot) => {
+        assignments = [];
+        snapshot.forEach(doc => {
+            assignments.push({ id: doc.id, ...doc.data() });
+        });
+        renderAssignments(assignments);
+        updateHomeStats(assignments);
+        loadHomePageData();
+    }, (error) => {
+        console.error('Assignments listener error:', error);
+    });
+}
 
 // ===== PAGE NAVIGATION =====
 function showPage(pageId) {
@@ -103,8 +129,12 @@ function showPage(pageId) {
         if (item.dataset.page === pageId) item.classList.add('active');
     });
     
-    if (pageId === 'assignmentsPage') renderAssignments();
-    if (pageId === 'homePage') loadHomePageData();
+    // Trigger page-specific data loading
+    if (pageId === 'homePage') {
+        loadHomePageData();
+    } else if (pageId === 'assignmentsPage') {
+        renderAssignments(assignments);
+    }
 }
 
 window.navigateTo = showPage;
@@ -171,191 +201,17 @@ elements.logoutBtn.addEventListener('click', async () => {
     }
 });
 
-// ===== ASSIGNMENTS FUNCTIONALITY =====
-async function loadAssignments() {
-    if (!currentUser) return;
-    try {
-        const q = query(
-            collection(db, 'assignments'),
-            where('userId', '==', currentUser.uid),
-            orderBy('createdAt', 'desc')
-        );
-        const snapshot = await getDocs(q);
-        const assignments = [];
-        snapshot.forEach(doc => {
-            assignments.push({ id: doc.id, ...doc.data() });
-        });
-        renderAssignments(assignments);
-        updateHomeStats(assignments);
-    } catch (error) {
-        showToast('Error loading assignments', 'error');
-        console.error(error);
-    }
-}
-
-function renderAssignments(assignments) {
-    const container = elements.assignmentsList;
-    if (!assignments || assignments.length === 0) {
-        container.innerHTML = `
-            <div class="assignment-card">
-                <div class="assignment-title">No assignments yet</div>
-                <p class="assignment-meta">Click + to add your first assignment</p>
-            </div>
-        `;
-        return;
-    }
-    
-    container.innerHTML = assignments.map(assignment => {
-        const dueDate = assignment.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : 'No due date';
-        const isOverdue = assignment.dueDate && new Date(assignment.dueDate) < new Date() && assignment.status === 'pending';
-        return `
-            <div class="assignment-card" style="${isOverdue ? 'border-left-color: #ef4444;' : ''}">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
-                    <div style="flex: 1;">
-                        <div class="assignment-title">${assignment.title}</div>
-                        <p class="assignment-meta">${dueDate}</p>
-                        ${assignment.subject ? `<p class="assignment-meta">Subject: ${assignment.subject}</p>` : ''}
-                    </div>
-                    <div style="display: flex; gap: 8px;">
-                        <button onclick="toggleAssignmentStatus('${assignment.id}', '${assignment.status}')" style="background: none; border: none; cursor: pointer; font-size: 18px;">
-                            ${assignment.status === 'pending' ? '⭕' : '✅'}
-                        </button>
-                        <button onclick="deleteAssignment('${assignment.id}')" style="background: none; border: none; cursor: pointer; font-size: 18px;">
-                            🗑️
-                        </button>
-                    </div>
-                </div>
-                <span class="assignment-status status-${assignment.status}">${assignment.status === 'pending' ? 'In Progress' : 'Completed'}</span>
-                ${isOverdue ? '<p style="color: #ef4444; font-size: 12px; margin-top: 8px;">⚠️ Overdue</p>' : ''}
-            </div>
-        `;
-    }).join('');
-}
-
-async function addAssignment(data) {
-    if (!currentUser) return;
-    try {
-        showToast('Adding assignment...', 'info');
-        await addDoc(collection(db, 'assignments'), {
-            ...data,
-            userId: currentUser.uid,
-            status: 'pending',
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-        });
-        showToast('Assignment added!', 'success');
-        loadAssignments();
-    } catch (error) {
-        showToast(error.message, 'error');
-    }
-}
-
-async function toggleAssignmentStatus(id, currentStatus) {
-    if (!currentUser) return;
-    try {
-        const newStatus = currentStatus === 'pending' ? 'completed' : 'pending';
-        const assignmentRef = doc(db, 'assignments', id);
-        await updateDoc(assignmentRef, {
-            status: newStatus,
-            updatedAt: serverTimestamp()
-        });
-        loadAssignments();
-        showToast(`Marked as ${newStatus}`, 'success');
-    } catch (error) {
-        showToast(error.message, 'error');
-    }
-}
-
-async function deleteAssignment(id) {
-    if (!currentUser) return;
-    if (!confirm('Delete this assignment?')) return;
-    try {
-        const assignmentRef = doc(db, 'assignments', id);
-        await deleteDoc(assignmentRef);
-        loadAssignments();
-        showToast('Assignment deleted', 'success');
-    } catch (error) {
-        showToast(error.message, 'error');
-    }
-}
-
-// ===== HOME PAGE DATA =====
-function updateHomeStats(assignments) {
-    if (!assignments) return;
-    
-    const today = new Date().toDateString();
-    const active = assignments.filter(a => a.status === 'pending').length;
-    const completedToday = assignments.filter(a => 
-        a.status === 'completed' && a.updatedAt && new Date(a.updatedAt.toDate()).toDateString() === today
-    ).length;
-    
-    elements.activeCount.textContent = active;
-    elements.completedCount.textContent = completedToday;
-    elements.totalCount.textContent = assignments.length;
-}
-
-function loadHomePageData() {
-    if (!currentUser) return;
-    
-    const name = localStorage.getItem('userName') || currentUser.displayName || 'Student';
-    elements.homeGreeting.textContent = `Welcome back, ${name}!`;
-    
-    // Load recent activity (last 5 assignments)
-    const q = query(
-        collection(db, 'assignments'),
-        where('userId', '==', currentUser.uid),
-        orderBy('updatedAt', 'desc'),
-        limit(5)
-    );
-    
-    getDocs(q).then(snapshot => {
-        const assignments = [];
-        snapshot.forEach(doc => assignments.push({ id: doc.id, ...doc.data() }));
-        
-        updateHomeStats(assignments);
-        
-        const recentList = elements.recentActivityList;
-        if (assignments.length === 0) {
-            recentList.innerHTML = '<p class="assignment-meta">No recent activity</p>';
-            return;
-        }
-        
-        recentList.innerHTML = assignments.map(assignment => {
-            const dueDate = assignment.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : 'No due date';
-            return `
-                <div class="activity-item" onclick="navigateTo('assignmentsPage')">
-                    <div>
-                        <div class="assignment-title">${assignment.title}</div>
-                        <p class="assignment-meta">${dueDate} • ${assignment.subject || 'General'}</p>
-                    </div>
-                    <span class="assignment-status status-${assignment.status}">${assignment.status === 'pending' ? 'In Progress' : 'Completed'}</span>
-                </div>
-            `;
-        }).join('');
-    }).catch(error => {
-        console.error('Error loading home data', error);
-    });
-}
-
-// ===== SEARCH FUNCTIONALITY =====
+// ===== ASSIGNMENTS SEARCH =====
 elements.searchAssignments.addEventListener('input', (e) => {
     const searchTerm = e.target.value.toLowerCase();
-    const q = query(
-        collection(db, 'assignments'),
-        where('userId', '==', currentUser.uid),
-        orderBy('createdAt', 'desc')
-    );
+    if (!assignments) return;
     
-    getDocs(q).then(snapshot => {
-        const assignments = [];
-        snapshot.forEach(doc => assignments.push({ id: doc.id, ...doc.data() }));
-        
-        const filtered = assignments.filter(a => 
-            a.title.toLowerCase().includes(searchTerm) || 
-            (a.subject && a.subject.toLowerCase().includes(searchTerm))
-        );
-        renderAssignments(filtered);
-    });
+    const filtered = assignments.filter(a => 
+        a.title.toLowerCase().includes(searchTerm) || 
+        (a.subject && a.subject.toLowerCase().includes(searchTerm)) ||
+        (a.description && a.description.toLowerCase().includes(searchTerm))
+    );
+    renderAssignments(filtered);
 });
 
 // ===== MODAL FUNCTIONALITY =====
@@ -386,6 +242,342 @@ elements.addAssignmentForm.addEventListener('submit', async (e) => {
     elements.addAssignmentModal.classList.remove('active');
     elements.addAssignmentForm.reset();
 });
+
+// ===== ASSIGNMENTS CRUD =====
+async function addAssignment(data) {
+    if (!currentUser) return;
+    try {
+        showToast('Adding assignment...', 'info');
+        await addDoc(collection(db, 'assignments'), {
+            ...data,
+            userId: currentUser.uid,
+            status: 'pending',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+        });
+        showToast('Assignment added!', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+async function toggleAssignmentStatus(id, currentStatus) {
+    if (!currentUser) return;
+    try {
+        const newStatus = currentStatus === 'pending' ? 'completed' : 'pending';
+        const assignmentRef = doc(db, 'assignments', id);
+        await updateDoc(assignmentRef, {
+            status: newStatus,
+            updatedAt: serverTimestamp()
+        });
+        showToast(`Marked as ${newStatus}`, 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+async function deleteAssignment(id) {
+    if (!currentUser) return;
+    if (!confirm('Delete this assignment?')) return;
+    try {
+        const assignmentRef = doc(db, 'assignments', id);
+        await deleteDoc(assignmentRef);
+        showToast('Assignment deleted', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+function renderAssignments(assignmentsToRender) {
+    const container = elements.assignmentsList;
+    if (!assignmentsToRender || assignmentsToRender.length === 0) {
+        container.innerHTML = `
+            <div class="assignment-card">
+                <div class="assignment-title">No assignments yet</div>
+                <p class="assignment-meta">Click + to add your first assignment</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = assignmentsToRender.map(assignment => {
+        const dueDate = assignment.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : 'No due date';
+        const isOverdue = assignment.dueDate && new Date(assignment.dueDate) < new Date() && assignment.status === 'pending';
+        return `
+            <div class="assignment-card" style="${isOverdue ? 'border-left-color: #ef4444;' : ''}">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div style="flex: 1;">
+                        <div class="assignment-title">${assignment.title}</div>
+                        <p class="assignment-meta">${assignment.dueDate ? 'Due: ' + dueDate : 'No due date'}</p>
+                        ${assignment.subject ? `<p class="assignment-meta">Subject: ${assignment.subject}</p>` : ''}
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button onclick="toggleAssignmentStatus('${assignment.id}', '${assignment.status}')" style="background: none; border: none; cursor: pointer; font-size: 18px;" title="Toggle status">
+                            ${assignment.status === 'pending' ? '⭕' : '✅'}
+                        </button>
+                        <button onclick="deleteAssignment('${assignment.id}')" style="background: none; border: none; cursor: pointer; font-size: 18px;" title="Delete">
+                            🗑️
+                        </button>
+                    </div>
+                </div>
+                <span class="assignment-status status-${assignment.status}">${assignment.status === 'pending' ? 'In Progress' : 'Completed'}</span>
+                ${isOverdue ? '<p style="color: #ef4444; font-size: 12px; margin-top: 8px;">⚠️ Overdue</p>' : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+// ===== HOME PAGE DATA =====
+function updateHomeStats() {
+    if (!assignments) return;
+    
+    const today = new Date().toDateString();
+    const active = assignments.filter(a => a.status === 'pending').length;
+    const completedToday = assignments.filter(a => {
+        if (a.status !== 'completed' || !a.updatedAt) return false;
+        const updatedDate = a.updatedAt.toDate ? a.updatedAt.toDate() : new Date(a.updatedAt);
+        return updatedDate.toDateString() === today;
+    }).length;
+    
+    // Animate counters
+    animateCounter(elements.activeCount, active);
+    animateCounter(elements.completedCount, completedToday);
+    animateCounter(elements.totalCount, assignments.length);
+}
+
+function animateCounter(element, targetValue) {
+    const startValue = parseInt(element.textContent) || 0;
+    const duration = 500;
+    const startTime = performance.now();
+    
+    function updateCounter(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const currentValue = Math.floor(startValue + (targetValue - startValue) * progress);
+        element.textContent = currentValue;
+        if (progress < 1) requestAnimationFrame(updateCounter);
+    }
+    
+    requestAnimationFrame(updateCounter);
+}
+
+function loadHomePageData() {
+    if (!currentUser) return;
+    
+    // Greeting
+    const name = localStorage.getItem('userName') || currentUser.displayName || 'Student';
+    elements.homeGreeting.textContent = `Welcome back, ${name}!`;
+    
+    // Stats
+    updateHomeStats();
+    
+    // Recent activity (last 5 assignments)
+    const recentAssignments = assignments.slice(0, 5);
+    const recentList = elements.recentActivityList;
+    
+    if (recentAssignments.length === 0) {
+        recentList.innerHTML = '<p class="assignment-meta">No recent activity. Add your first assignment!</p>';
+        return;
+    }
+    
+    recentList.innerHTML = recentAssignments.map(assignment => {
+        const dueDate = assignment.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : 'No due date';
+        const timeAgo = getTimeAgo(assignment.updatedAt);
+        return `
+            <div class="activity-item" onclick="navigateTo('assignmentsPage')" style="cursor: pointer;">
+                <div>
+                    <div class="assignment-title">${assignment.title}</div>
+                    <p class="assignment-meta">${dueDate} • ${assignment.subject || 'General'} • ${timeAgo}</p>
+                </div>
+                <span class="assignment-status status-${assignment.status}">${assignment.status === 'pending' ? 'In Progress' : 'Completed'}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+function getTimeAgo(timestamp) {
+    if (!timestamp) return 'Just now';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+}
+
+// ===== PROFILE PAGE ENHANCEMENTS =====
+function loadProfileSettings() {
+    if (!currentUser) return;
+    
+    const settingsContainer = document.getElementById('profileSettings');
+    const accountCreated = currentUser.metadata.creationTime ? 
+        new Date(currentUser.metadata.creationTime).toLocaleDateString() : 'Unknown';
+    
+    // Load user metrics
+    const userMetrics = {
+        totalChats: chatHistory.length,
+        totalTokens: metrics.totalTokens,
+        totalCost: metrics.totalCost,
+        totalAssignments: assignments.length
+    };
+    
+    settingsContainer.innerHTML = `
+        <div class="assignment-card">
+            <h4 style="margin-bottom: 12px;">📊 Usage Statistics</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px;">
+                <div>AI Chats: <strong>${userMetrics.totalChats}</strong></div>
+                <div>Tokens Used: <strong>${userMetrics.totalTokens}</strong></div>
+                <div>Total Cost: <strong>$${userMetrics.totalCost.toFixed(4)}</strong></div>
+                <div>Assignments: <strong>${userMetrics.totalAssignments}</strong></div>
+            </div>
+        </div>
+        
+        <div class="assignment-card">
+            <h4 style="margin-bottom: 12px;">🔧 Preferences</h4>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span>Dark Mode</span>
+                <label class="switch">
+                    <input type="checkbox" id="darkModeToggle">
+                    <span class="slider round"></span>
+                </label>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span>Notifications</span>
+                <label class="switch">
+                    <input type="checkbox" id="notificationsToggle" checked>
+                    <span class="slider round"></span>
+                </label>
+            </div>
+            <p class="assignment-meta">Account created: ${accountCreated}</p>
+        </div>
+        
+        <div class="assignment-card">
+            <h4 style="margin-bottom: 12px;">⚙️ Account Actions</h4>
+            <button class="btn btn-secondary" onclick="resetPassword()" style="margin-bottom: 8px;">
+                Reset Password
+            </button>
+            <button class="btn btn-danger" onclick="deleteAccount()" style="background: #ef4444; color: white;">
+                Delete Account
+            </button>
+        </div>
+    `;
+    
+    // Add event listeners for toggles
+    document.getElementById('darkModeToggle')?.addEventListener('change', (e) => {
+        if (e.target.checked) {
+            document.body.style.background = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
+            document.body.style.color = '#f1f5f9';
+        } else {
+            document.body.style.background = 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)';
+            document.body.style.color = '#1e293b';
+        }
+        localStorage.setItem('darkMode', e.target.checked);
+    });
+    
+    // Load saved preference
+    const savedDarkMode = localStorage.getItem('darkMode') === 'true';
+    const toggle = document.getElementById('darkModeToggle');
+    if (toggle) toggle.checked = savedDarkMode;
+    if (savedDarkMode) {
+        document.body.style.background = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
+        document.body.style.color = '#f1f5f9';
+    }
+}
+
+async function resetPassword() {
+    if (!currentUser) return;
+    try {
+        await sendPasswordResetEmail(auth, currentUser.email);
+        showToast('Password reset email sent!', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+async function deleteAccount() {
+    if (!currentUser) return;
+    if (!confirm('Are you sure? This will permanently delete your account and all data.')) return;
+    
+    try {
+        showToast('Deleting account...', 'info');
+        // Delete user assignments
+        const q = query(collection(db, 'assignments'), where('userId', '==', currentUser.uid));
+        const snapshot = await getDocs(q);
+        const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+        
+        // Delete user
+        await deleteDoc(doc(db, 'users', currentUser.uid));
+        await currentUser.delete();
+        
+        showToast('Account deleted', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// Add CSS for toggle switches
+const style = document.createElement('style');
+style.textContent = `
+    .switch {
+        position: relative;
+        display: inline-block;
+        width: 50px;
+        height: 24px;
+    }
+    .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+    .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #ccc;
+        transition: .4s;
+        border-radius: 24px;
+    }
+    .slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        transition: .4s;
+        border-radius: 50%;
+    }
+    input:checked + .slider {
+        background-color: #6366f1;
+    }
+    input:checked + .slider:before {
+        transform: translateX(26px);
+    }
+    .btn-danger {
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 12px;
+        border-radius: 12px;
+        cursor: pointer;
+        width: 100%;
+    }
+    .btn-danger:hover {
+        background: #dc2626;
+    }
+`;
+document.head.appendChild(style);
 
 // ===== CHAT FUNCTIONALITY =====
 elements.sendBtn.addEventListener('click', sendMessage);
@@ -501,10 +693,20 @@ function showToast(message, type = 'info') {
 
 function updateProfileInfo() {
     if (!currentUser) return;
+    
+    // Update profile page
     const name = localStorage.getItem('userName') || currentUser.displayName || currentUser.email.split('@')[0];
     elements.profileName.textContent = name;
     elements.profileEmail.textContent = currentUser.email;
     elements.profileAvatar.textContent = name.charAt(0).toUpperCase();
+    
+    // Update home greeting
+    if (elements.homeGreeting) {
+        elements.homeGreeting.textContent = `Welcome back, ${name}!`;
+    }
+    
+    // Load profile settings
+    loadProfileSettings();
 }
 
 // ===== INITIALIZE APP =====
@@ -512,7 +714,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const savedMetrics = localStorage.getItem('appMetrics');
     if (savedMetrics) metrics = JSON.parse(savedMetrics);
     
-    // Hide nav on auth pages initially
     const sharedNav = document.getElementById('sharedBottomNav');
     sharedNav.style.display = 'none';
 });
