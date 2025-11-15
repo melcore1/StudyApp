@@ -34,9 +34,10 @@ let metrics = { totalCost: 0, totalTokens: 0, chats: 0 };
 let userProfile = { name: '', email: '' };
 
 // ===== CONFIGURATION =====
-const OPENROUTER_KEY = "sk-or-v1-YOUR_OPENROUTER_API_KEY_HERE";
-const AI_MODEL = "anthropic/claude-3.5-sonnet";
-const MODEL_PRICING = { input: 3.00, output: 15.00 };
+// ⚠️ WARNING: Keep this key private! Do NOT commit to public Git repos!
+const OPENROUTER_KEY = "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";
+const AI_MODEL = "google/gemini-1.5-flash"; // FREE model
+const MODEL_PRICING = { input: 0.00, output: 0.00 }; // It's FREE!
 
 // ===== INITIALIZATION =====
 const app = initializeApp(firebaseConfig);
@@ -392,8 +393,6 @@ function handleAssignmentAction(e) {
     const action = button.dataset.action;
     const id = button.dataset.id;
     const status = button.dataset.status;
-    
-    console.log("Button clicked:", action, "ID:", id); // Debug log
     
     if (action === 'toggle') {
         toggleAssignmentStatus(id, status);
