@@ -992,6 +992,10 @@ function updateProfileInfo() {
     if (elements.homeGreeting) elements.homeGreeting.textContent = `Welcome back, ${name}!`;
 }
 
+// ===== EXPOSE FUNCTIONS TO WINDOW (for onclick handlers) =====
+window.resetPassword = resetPassword;
+window.deleteAccount = deleteAccount;
+
 // ===== INITIALIZE APP =====
 document.addEventListener('DOMContentLoaded', () => {
     const savedMetrics = localStorage.getItem('appMetrics');
