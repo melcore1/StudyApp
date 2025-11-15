@@ -330,7 +330,7 @@ async function deleteAssignment(id) {
     }
 }
 
-// ===== NEW: RENDER ASSIGNMENTS WITH EVENT DELEGATION =====
+// ===== RENDER ASSIGNMENTS WITH EVENT DELEGATION =====
 function renderAssignments(assignmentsToRender) {
     const container = elements.assignmentsList;
     
@@ -385,7 +385,7 @@ function renderAssignments(assignmentsToRender) {
     container.appendChild(fragment);
 }
 
-// ===== NEW: EVENT DELEGATION HANDLER =====
+// ===== EVENT DELEGATION HANDLER =====
 function handleAssignmentAction(e) {
     const button = e.target.closest('.assignment-action-btn');
     if (!button) return;
@@ -615,7 +615,7 @@ async function sendMessage() {
     elements.sendBtn.disabled = true;
     const loadingMsg = addMessage('Thinking...', 'ai', true);
     try {
-        const response = await callOpenRouterWithFallback(message);
+        const response = await callOpenRouter(message);
         loadingMsg.remove();
         addMessage(response.content, 'ai');
         updateMetrics(response.metrics);
@@ -676,57 +676,6 @@ async function callOpenRouter(message) {
         // Log network errors too
         if (error instanceof TypeError && error.message === 'Failed to fetch') {
             throw new Error('Network error: Cannot reach OpenRouter API. Check your connection.');
-        }
-        throw error;
-    }
-}
-
-// ===== CORS FALLBACK FUNCTION =====
-async function callOpenRouterWithFallback(message) {
-    try {
-        return await callOpenRouter(message);
-    } catch (error) {
-        // If direct call fails, try with a CORS proxy
-        if (error.message.includes('Network error') || error.message.includes('Failed to fetch')) {
-            showToast('Trying alternative connection...', 'info');
-            // Use a public CORS proxy as fallback
-            const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
-            const originalUrl = 'https://openrouter.ai/api/v1/chat/completions';
-            
-            const response = await fetch(proxyUrl + originalUrl, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${OPENROUTER_KEY}`,
-                    'Content-Type': 'application/json',
-                    'Origin': window.location.origin
-                },
-                body: JSON.stringify({
-                    model: AI_MODEL,
-                    messages: [{ role: 'user', content: message }]
-                })
-            });
-            
-            const responseData = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(`API Error ${response.status}: ${responseData.error?.message || 'Invalid request'}`);
-            }
-            
-            // Process successful response
-            const usage = responseData.usage || {};
-            const promptTokens = usage.prompt_tokens || 0;
-            const completionTokens = usage.completion_tokens || 0;
-            const totalTokens = usage.total_tokens || 0;
-            const inputCost = (promptTokens / 1000000) * MODEL_PRICING.input;
-            const outputCost = (completionTokens / 1000000) * MODEL_PRICING.output;
-            const totalCost = inputCost + outputCost;
-            const duration = (performance.now() - performance.now()) / 1000;
-            const speed = duration > 0 ? (completionTokens / duration).toFixed(1) : 0;
-            
-            return {
-                content: responseData.choices[0].message.content,
-                metrics: { promptTokens, completionTokens, totalTokens, totalCost, speed, duration: duration.toFixed(2) }
-            };
         }
         throw error;
     }
@@ -803,7 +752,4 @@ document.addEventListener('DOMContentLoaded', () => {
     if (savedDarkMode) {
         document.body.setAttribute('data-theme', 'dark');
     }
-    
-    const sharedNav = document.getElementById('sharedBottomNav');
-    sharedNav.style.display = 'none';
 });
