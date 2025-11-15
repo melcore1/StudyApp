@@ -13,6 +13,7 @@
             color: #1e293b;
             height: 100vh;
             overflow: hidden;
+            transition: background 0.3s, color 0.3s;
         }
         .page {
             display: none;
@@ -45,7 +46,7 @@
             font-weight: 500;
             color: #334155;
         }
-        .form-group input {
+        .form-group input, .form-group textarea, .form-group select {
             width: 100%;
             padding: 14px;
             border: 2px solid #e2e8f0;
@@ -54,7 +55,7 @@
             transition: all 0.3s;
             background: white;
         }
-        .form-group input:focus {
+        .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
             outline: none;
             border-color: #6366f1;
             box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
@@ -135,6 +136,8 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 12px;
         }
         .page-header h2 {
             font-size: 1.8rem;
@@ -324,7 +327,6 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        /* STATS CARDS */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -357,12 +359,8 @@
             margin-bottom: 20px;
             outline: none;
         }
-        .search-bar:focus {
-            border-color: #6366f1;
-        }
-        .recent-activity {
-            margin-top: 20px;
-        }
+        .search-bar:focus { border-color: #6366f1; }
+        .recent-activity { margin-top: 20px; }
         .activity-item {
             background: white;
             border-radius: 12px;
@@ -371,7 +369,10 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            cursor: pointer;
+            transition: background 0.2s;
         }
+        .activity-item:hover { background: #f8fafc; }
         .add-assignment-btn {
             position: fixed;
             bottom: 90px;
@@ -387,9 +388,7 @@
             box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
             z-index: 999;
         }
-        .add-assignment-btn:hover {
-            transform: scale(1.1);
-        }
+        .add-assignment-btn:hover { transform: scale(1.1); }
         .modal {
             display: none;
             position: fixed;
@@ -427,22 +426,58 @@
             cursor: pointer;
             color: #64748b;
         }
-        .form-group textarea {
-            width: 100%;
-            padding: 14px;
-            border: 2px solid #e2e8f0;
-            border-radius: 12px;
-            font-size: 16px;
-            min-height: 100px;
-            resize: vertical;
+        /* Toggle Switch Styles */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
         }
-        .form-group select {
-            width: 100%;
-            padding: 14px;
-            border: 2px solid #e2e8f0;
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #6366f1;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 12px;
             border-radius: 12px;
-            font-size: 16px;
-            background: white;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 8px;
+        }
+        .btn-danger:hover {
+            background: #dc2626;
         }
         @media (max-width: 480px) {
             .page-content {
@@ -603,10 +638,8 @@
                     <p id="profileEmail">Loading...</p>
                 </div>
             </div>
-            <div class="assignment-card">
-                <h4 style="margin-bottom: 12px;">Account Settings</h4>
-                <p class="assignment-meta">Manage your preferences</p>
-            </div>
+            <!-- Profile Settings Container -->
+            <div id="profileSettings"></div>
             <button class="btn btn-secondary" id="logoutBtn" style="margin-top: 20px;">
                 Logout
             </button>

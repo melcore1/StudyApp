@@ -31,7 +31,7 @@ let chatHistory = [];
 let metrics = { totalCost: 0, totalTokens: 0, chats: 0 };
 
 // ===== CONFIGURATION =====
-const OPENROUTER_KEY = "sk-or-v1-YOUR_OPENROUTER_API_KEY";
+const OPENROUTER_KEY = "sk-or-v1-YOUR_OPENROUTER_API_KEY_HERE";
 const AI_MODEL = "anthropic/claude-3.5-sonnet";
 const MODEL_PRICING = { input: 3.00, output: 15.00 };
 
@@ -73,6 +73,7 @@ const elements = {
     addAssignmentModal: document.getElementById('addAssignmentModal'),
     addAssignmentForm: document.getElementById('addAssignmentForm'),
     closeModal: document.getElementById('closeModal'),
+    profileSettings: document.getElementById('profileSettings'),
     toast: document.getElementById('toast')
 };
 
@@ -94,7 +95,6 @@ onAuthStateChanged(auth, (user) => {
 function setupRealtimeListeners() {
     if (!currentUser) return;
     
-    // Listen to assignments changes in real-time
     const assignmentsQuery = query(
         collection(db, 'assignments'),
         where('userId', '==', currentUser.uid),
@@ -107,7 +107,7 @@ function setupRealtimeListeners() {
             assignments.push({ id: doc.id, ...doc.data() });
         });
         renderAssignments(assignments);
-        updateHomeStats(assignments);
+        updateHomeStats();
         loadHomePageData();
     }, (error) => {
         console.error('Assignments listener error:', error);
@@ -129,11 +129,10 @@ function showPage(pageId) {
         if (item.dataset.page === pageId) item.classList.add('active');
     });
     
-    // Trigger page-specific data loading
     if (pageId === 'homePage') {
         loadHomePageData();
-    } else if (pageId === 'assignmentsPage') {
-        renderAssignments(assignments);
+    } else if (pageId === 'profilePage') {
+        loadProfileSettings();
     }
 }
 
@@ -365,7 +364,7 @@ function loadHomePageData() {
     if (!currentUser) return;
     
     // Greeting
-    const name = localStorage.getItem('userName') || currentUser.displayName || 'Student';
+    const name = localStorage.getItem('userName') || currentUser.displayName || currentUser.email.split('@')[0];
     elements.homeGreeting.textContent = `Welcome back, ${name}!`;
     
     // Stats
@@ -411,11 +410,11 @@ function getTimeAgo(timestamp) {
     return date.toLocaleDateString();
 }
 
-// ===== PROFILE PAGE ENHANCEMENTS =====
+// ===== PROFILE SETTINGS =====
 function loadProfileSettings() {
     if (!currentUser) return;
     
-    const settingsContainer = document.getElementById('profileSettings');
+    const settingsContainer = elements.profileSettings;
     const accountCreated = currentUser.metadata.creationTime ? 
         new Date(currentUser.metadata.creationTime).toLocaleDateString() : 'Unknown';
     
@@ -462,31 +461,36 @@ function loadProfileSettings() {
             <button class="btn btn-secondary" onclick="resetPassword()" style="margin-bottom: 8px;">
                 Reset Password
             </button>
-            <button class="btn btn-danger" onclick="deleteAccount()" style="background: #ef4444; color: white;">
+            <button class="btn btn-danger" onclick="deleteAccount()">
                 Delete Account
             </button>
         </div>
     `;
     
-    // Add event listeners for toggles
-    document.getElementById('darkModeToggle')?.addEventListener('change', (e) => {
-        if (e.target.checked) {
-            document.body.style.background = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
-            document.body.style.color = '#f1f5f9';
-        } else {
-            document.body.style.background = 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)';
-            document.body.style.color = '#1e293b';
-        }
-        localStorage.setItem('darkMode', e.target.checked);
-    });
-    
-    // Load saved preference
+    // Dark mode toggle
+    const darkModeToggle = document.getElementById('darkModeToggle');
     const savedDarkMode = localStorage.getItem('darkMode') === 'true';
-    const toggle = document.getElementById('darkModeToggle');
-    if (toggle) toggle.checked = savedDarkMode;
+    if (darkModeToggle) {
+        darkModeToggle.checked = savedDarkMode;
+        darkModeToggle.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                document.body.style.background = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
+                document.body.style.color = '#f1f5f9';
+                document.body.setAttribute('data-theme', 'dark');
+            } else {
+                document.body.style.background = 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)';
+                document.body.style.color = '#1e293b';
+                document.body.removeAttribute('data-theme');
+            }
+            localStorage.setItem('darkMode', e.target.checked);
+        });
+    }
+    
+    // Apply saved dark mode on page load
     if (savedDarkMode) {
         document.body.style.background = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
         document.body.style.color = '#f1f5f9';
+        document.body.setAttribute('data-theme', 'dark');
     }
 }
 
@@ -512,72 +516,12 @@ async function deleteAccount() {
         const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
         await Promise.all(deletePromises);
         
-        // Delete user
-        await deleteDoc(doc(db, 'users', currentUser.uid));
-        await currentUser.delete();
-        
         showToast('Account deleted', 'success');
+        await signOut(auth);
     } catch (error) {
         showToast(error.message, 'error');
     }
 }
-
-// Add CSS for toggle switches
-const style = document.createElement('style');
-style.textContent = `
-    .switch {
-        position: relative;
-        display: inline-block;
-        width: 50px;
-        height: 24px;
-    }
-    .switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-    }
-    .slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: #ccc;
-        transition: .4s;
-        border-radius: 24px;
-    }
-    .slider:before {
-        position: absolute;
-        content: "";
-        height: 18px;
-        width: 18px;
-        left: 3px;
-        bottom: 3px;
-        background-color: white;
-        transition: .4s;
-        border-radius: 50%;
-    }
-    input:checked + .slider {
-        background-color: #6366f1;
-    }
-    input:checked + .slider:before {
-        transform: translateX(26px);
-    }
-    .btn-danger {
-        background: #ef4444;
-        color: white;
-        border: none;
-        padding: 12px;
-        border-radius: 12px;
-        cursor: pointer;
-        width: 100%;
-    }
-    .btn-danger:hover {
-        background: #dc2626;
-    }
-`;
-document.head.appendChild(style);
 
 // ===== CHAT FUNCTIONALITY =====
 elements.sendBtn.addEventListener('click', sendMessage);
@@ -694,19 +638,12 @@ function showToast(message, type = 'info') {
 function updateProfileInfo() {
     if (!currentUser) return;
     
-    // Update profile page
     const name = localStorage.getItem('userName') || currentUser.displayName || currentUser.email.split('@')[0];
-    elements.profileName.textContent = name;
-    elements.profileEmail.textContent = currentUser.email;
-    elements.profileAvatar.textContent = name.charAt(0).toUpperCase();
     
-    // Update home greeting
-    if (elements.homeGreeting) {
-        elements.homeGreeting.textContent = `Welcome back, ${name}!`;
-    }
-    
-    // Load profile settings
-    loadProfileSettings();
+    if (elements.profileName) elements.profileName.textContent = name;
+    if (elements.profileEmail) elements.profileEmail.textContent = currentUser.email;
+    if (elements.profileAvatar) elements.profileAvatar.textContent = name.charAt(0).toUpperCase();
+    if (elements.homeGreeting) elements.homeGreeting.textContent = `Welcome back, ${name}!`;
 }
 
 // ===== INITIALIZE APP =====
