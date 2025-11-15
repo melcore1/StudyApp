@@ -36,7 +36,7 @@ let userProfile = { name: '', email: '' };
 // ===== CONFIGURATION =====
 // ⚠️ WARNING: Keep this key private! Do NOT commit to public Git repos!
 const OPENROUTER_KEY = "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";
-const AI_MODEL = "google/gemini-2.0-flash-exp:free"; // Free Gemini model
+const AI_MODEL = "meta-llama/llama-3.2-3b-instruct:free"; // Reliable free model
 const MODEL_PRICING = { input: 0.00, output: 0.00 }; // It's FREE!
 
 // ===== INITIALIZATION =====
@@ -515,8 +515,27 @@ function getTimeAgo(timestamp) {
 }
 
 // ===== PROFILE SETTINGS =====
-function loadProfileSettings() {
+// This is the updated loadProfileSettings function
+// Replace the existing one (lines 518-590) with this
+
+async function loadProfileSettings() {
     if (!currentUser || !userProfile) return;
+    
+    // Load user's custom API settings from Firestore
+    let customApiSettings = {
+        enabled: false,
+        apiKey: '',
+        model: 'meta-llama/llama-3.2-3b-instruct:free'
+    };
+    
+    try {
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        if (userDoc.exists() && userDoc.data().customApiSettings) {
+            customApiSettings = { ...customApiSettings, ...userDoc.data().customApiSettings };
+        }
+    } catch (error) {
+        console.error('Error loading API settings:', error);
+    }
     
     const settingsContainer = elements.profileSettings;
     const accountCreated = currentUser.metadata.creationTime ? 
@@ -528,6 +547,16 @@ function loadProfileSettings() {
         totalCost: metrics.totalCost,
         totalAssignments: assignments.length
     };
+    
+    // Available free models
+    const availableModels = [
+        { value: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Fast & Reliable)' },
+        { value: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Balanced)' },
+        { value: 'qwen/qwen-2-7b-instruct:free', name: 'Qwen 2 7B (Smart)' },
+        { value: 'microsoft/phi-3-mini-128k-instruct:free', name: 'Phi-3 Mini (Compact)' },
+        { value: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Google)' },
+        { value: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Powerful)' }
+    ];
     
     settingsContainer.innerHTML = `
         <div class="assignment-card">
@@ -560,6 +589,51 @@ function loadProfileSettings() {
         </div>
         
         <div class="assignment-card">
+            <h4 style="margin-bottom: 12px;">🤖 AI Settings</h4>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span>Use Custom OpenRouter API Key</span>
+                <label class="switch">
+                    <input type="checkbox" id="customApiToggle" ${customApiSettings.enabled ? 'checked' : ''}>
+                    <span class="slider round"></span>
+                </label>
+            </div>
+            
+            <div id="customApiContainer" style="display: ${customApiSettings.enabled ? 'block' : 'none'}; margin-top: 12px;">
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <label style="font-size: 14px; margin-bottom: 6px; display: block;">API Key</label>
+                    <input 
+                        type="password" 
+                        id="customApiKeyInput" 
+                        placeholder="sk-or-v1-..." 
+                        value="${customApiSettings.apiKey}"
+                        style="width: 100%; padding: 10px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--card-bg); color: var(--text-primary);"
+                    >
+                    <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                        Get your free key at <a href="https://openrouter.ai/keys" target="_blank" style="color: var(--primary-color);">openrouter.ai/keys</a>
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label style="font-size: 14px; margin-bottom: 6px; display: block;">AI Model</label>
+                    <select 
+                        id="customModelSelect" 
+                        style="width: 100%; padding: 10px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--card-bg); color: var(--text-primary);"
+                    >
+                        ${availableModels.map(model => `
+                            <option value="${model.value}" ${customApiSettings.model === model.value ? 'selected' : ''}>
+                                ${model.name}
+                            </option>
+                        `).join('')}
+                    </select>
+                </div>
+                
+                <button class="btn btn-primary" id="saveApiSettingsBtn" style="margin-top: 12px; width: 100%;">
+                    Save AI Settings
+                </button>
+            </div>
+        </div>
+        
+        <div class="assignment-card">
             <h4 style="margin-bottom: 12px;">⚙️ Account Actions</h4>
             <button class="btn btn-secondary" onclick="resetPassword()" style="margin-bottom: 8px;">
                 Reset Password
@@ -570,6 +644,7 @@ function loadProfileSettings() {
         </div>
     `;
     
+    // Dark mode toggle
     const darkModeToggle = document.getElementById('darkModeToggle');
     const savedDarkMode = localStorage.getItem('darkMode') === 'true';
     if (darkModeToggle) {
@@ -587,7 +662,50 @@ function loadProfileSettings() {
     if (savedDarkMode) {
         document.body.setAttribute('data-theme', 'dark');
     }
+    
+    // Custom API toggle
+    const customApiToggle = document.getElementById('customApiToggle');
+    const customApiContainer = document.getElementById('customApiContainer');
+    
+    if (customApiToggle) {
+        customApiToggle.addEventListener('change', (e) => {
+            customApiContainer.style.display = e.target.checked ? 'block' : 'none';
+        });
+    }
+    
+    // Save API settings button
+    const saveApiSettingsBtn = document.getElementById('saveApiSettingsBtn');
+    if (saveApiSettingsBtn) {
+        saveApiSettingsBtn.addEventListener('click', async () => {
+            const enabled = document.getElementById('customApiToggle').checked;
+            const apiKey = document.getElementById('customApiKeyInput').value.trim();
+            const model = document.getElementById('customModelSelect').value;
+            
+            if (enabled && !apiKey) {
+                showToast('Please enter an API key', 'error');
+                return;
+            }
+            
+            try {
+                showToast('Saving settings...', 'info');
+                
+                await updateDoc(doc(db, 'users', currentUser.uid), {
+                    customApiSettings: {
+                        enabled: enabled,
+                        apiKey: apiKey,
+                        model: model
+                    }
+                });
+                
+                showToast('AI settings saved successfully!', 'success');
+            } catch (error) {
+                console.error('Error saving API settings:', error);
+                showToast('Failed to save settings', 'error');
+            }
+        });
+    }
 }
+
 
 async function resetPassword() {
     if (!currentUser) return;
@@ -660,20 +778,42 @@ async function sendMessage() {
 }
 
 // ===== IMPROVED API CALL WITH BETTER ERROR HANDLING =====
+// ===== IMPROVED API CALL WITH BETTER ERROR HANDLING AND CUSTOM SETTINGS =====
 async function callOpenRouter(message) {
     const startTime = performance.now();
+    
+    // Get custom API settings from Firestore if available
+    let apiKey = OPENROUTER_KEY;
+    let model = AI_MODEL;
+    
+    if (currentUser) {
+        try {
+            const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+            if (userDoc.exists() && userDoc.data().customApiSettings) {
+                const customSettings = userDoc.data().customApiSettings;
+                if (customSettings.enabled && customSettings.apiKey) {
+                    apiKey = customSettings.apiKey;
+                    model = customSettings.model || AI_MODEL;
+                    console.log('Using custom API settings with model:', model);
+                }
+            }
+        } catch (error) {
+            console.error('Error loading custom API settings:', error);
+            // Fall back to default settings
+        }
+    }
     
     try {
         const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${OPENROUTER_KEY}`,
+                'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json',
                 'HTTP-Referer': window.location.origin,
                 'X-Title': 'StudyApp'
             },
             body: JSON.stringify({
-                model: AI_MODEL,
+                model: model,
                 messages: [{ role: 'user', content: message }]
             })
         });
@@ -710,6 +850,7 @@ async function callOpenRouter(message) {
         throw error;
     }
 }
+
 
 // ===== CORS FALLBACK FUNCTION =====
 async function callOpenRouterWithFallback(message) {
