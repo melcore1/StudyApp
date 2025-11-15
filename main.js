@@ -24,17 +24,7 @@ import {
     setDoc,
     getDoc
 } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
-
-// ===== FIREBASE CONFIGURATION =====
-// Replace these with your own Firebase project credentials
-const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_AUTH_DOMAIN",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_STORAGE_BUCKET",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID"
-};
+import { firebaseConfig } from './firebase-config.js';
 
 // ===== APP STATE =====
 let currentUser = null;
@@ -217,316 +207,431 @@ elements.loginForm.addEventListener('submit', async (e) => {
         showToast('Logging in...', 'info');
         console.log('Attempting login...');
         
-        await signInWithEmailAndPassword(auth, email, password);
-        showToast('Login successful!', 'success');
+        // FIX: Store the result and wait for auth state change
+        const result = await signInWithEmailAndPassword(auth, email, password);
+        console.log('Login successful:', result.user.uid);
+        
+        // Give auth state change time to process
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Explicitly navigate to home page
+        showPage('homePage');
+        showToast('Welcome back!', 'success');
+        
     } catch (error) {
         console.error('Login error:', error);
-        let errorMessage = 'Login failed';
-        
-        switch (error.code) {
-            case 'auth/invalid-credential':
-            case 'auth/wrong-password':
-            case 'auth/user-not-found':
-                errorMessage = 'Invalid email or password';
-                break;
-            case 'auth/invalid-email':
-                errorMessage = 'Invalid email address';
-                break;
-            case 'auth/user-disabled':
-                errorMessage = 'This account has been disabled';
-                break;
-            case 'auth/too-many-requests':
-                errorMessage = 'Too many attempts. Try again later';
-                break;
-            default:
-                errorMessage = error.message;
-        }
-        
-        showToast(errorMessage, 'error');
+        showToast(error.message, 'error');
     }
 });
 
 elements.registerForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = document.getElementById('registerName').value;
     const email = document.getElementById('registerEmail').value;
     const password = document.getElementById('registerPassword').value;
-    
-    if (password.length < 6) {
-        showToast('Password must be at least 6 characters', 'error');
-        return;
-    }
-    
+    const name = document.getElementById('registerName').value;
     try {
         showToast('Creating account...', 'info');
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(userCredential.user, { displayName: name });
+        const result = await createUserWithEmailAndPassword(auth, email, password);
+        await updateProfile(result.user, { displayName: name });
         
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
+        await setDoc(doc(db, 'users', result.user.uid), {
             name: name,
             email: email,
             createdAt: serverTimestamp()
         });
         
-        showToast('Account created successfully!', 'success');
+        localStorage.setItem('userName', name);
+        showToast('Account created!', 'success');
     } catch (error) {
-        console.error('Registration error:', error);
-        let errorMessage = 'Registration failed';
-        
-        switch (error.code) {
-            case 'auth/email-already-in-use':
-                errorMessage = 'Email already registered';
-                break;
-            case 'auth/invalid-email':
-                errorMessage = 'Invalid email address';
-                break;
-            case 'auth/weak-password':
-                errorMessage = 'Password is too weak';
-                break;
-            default:
-                errorMessage = error.message;
-        }
-        
-        showToast(errorMessage, 'error');
+        showToast(error.message, 'error');
     }
 });
 
-document.getElementById('showRegister').addEventListener('click', () => {
-    showPage('registerPage');
-});
+document.getElementById('showRegister').addEventListener('click', () => showPage('registerPage'));
+document.getElementById('showLogin').addEventListener('click', () => showPage('loginPage'));
 
-document.getElementById('showLogin').addEventListener('click', () => {
-    showPage('loginPage');
-});
-
-elements.forgotPassword.addEventListener('click', async () => {
+elements.forgotPassword.addEventListener('click', async (e) => {
+    e.preventDefault();
     const email = document.getElementById('loginEmail').value;
-    
-    if (!email) {
-        showToast('Please enter your email first', 'error');
-        return;
-    }
-    
+    if (!email) return showToast('Enter email first', 'error');
     try {
         await sendPasswordResetEmail(auth, email);
-        showToast('Password reset email sent!', 'success');
+        showToast('Reset email sent!', 'success');
     } catch (error) {
-        console.error('Password reset error:', error);
-        showToast('Failed to send reset email', 'error');
+        showToast(error.message, 'error');
     }
 });
 
 elements.logoutBtn.addEventListener('click', async () => {
     try {
         await signOut(auth);
-        assignments = [];
-        chatHistory = [];
-        localStorage.removeItem('chatHistory');
-        showToast('Logged out successfully', 'success');
+        showToast('Logged out', 'success');
+        localStorage.removeItem('userName');
+        userProfile = { name: '', email: '' };
     } catch (error) {
-        console.error('Logout error:', error);
-        showToast('Logout failed', 'error');
+        showToast(error.message, 'error');
     }
 });
 
-// ===== ASSIGNMENTS MANAGEMENT =====
+// ===== ASSIGNMENTS SEARCH =====
+elements.searchAssignments.addEventListener('input', (e) => {
+    const searchTerm = e.target.value.toLowerCase();
+    if (!assignments) return;
+    
+    const filtered = assignments.filter(a => 
+        a.title.toLowerCase().includes(searchTerm) || 
+        (a.subject && a.subject.toLowerCase().includes(searchTerm)) ||
+        (a.description && a.description.toLowerCase().includes(searchTerm))
+    );
+    renderAssignments(filtered);
+});
+
+// ===== MODAL FUNCTIONALITY =====
 elements.addAssignmentBtn.addEventListener('click', () => {
-    elements.addAssignmentModal.style.display = 'flex';
+    elements.addAssignmentModal.classList.add('active');
 });
 
 elements.closeModal.addEventListener('click', () => {
-    elements.addAssignmentModal.style.display = 'none';
+    elements.addAssignmentModal.classList.remove('active');
     elements.addAssignmentForm.reset();
 });
 
 elements.addAssignmentModal.addEventListener('click', (e) => {
     if (e.target === elements.addAssignmentModal) {
-        elements.addAssignmentModal.style.display = 'none';
+        elements.addAssignmentModal.classList.remove('active');
         elements.addAssignmentForm.reset();
     }
 });
 
 elements.addAssignmentForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const title = document.getElementById('assignmentTitle').value;
+    const description = document.getElementById('assignmentDescription').value;
+    const dueDate = document.getElementById('assignmentDueDate').value;
+    const subject = document.getElementById('assignmentSubject').value;
     
-    if (!currentUser) {
-        showToast('Please login first', 'error');
-        return;
-    }
-    
-    const assignment = {
-        title: document.getElementById('assignmentTitle').value,
-        description: document.getElementById('assignmentDescription').value || '',
-        dueDate: document.getElementById('assignmentDueDate').value,
-        subject: document.getElementById('assignmentSubject').value,
-        userId: currentUser.uid,
-        completed: false,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-    };
-    
+    await addAssignment({ title, description, dueDate, subject });
+    elements.addAssignmentModal.classList.remove('active');
+    elements.addAssignmentForm.reset();
+});
+
+// ===== ASSIGNMENTS CRUD =====
+async function addAssignment(data) {
+    if (!currentUser) return;
     try {
-        await addDoc(collection(db, 'assignments'), assignment);
+        showToast('Adding assignment...', 'info');
+        await addDoc(collection(db, 'assignments'), {
+            ...data,
+            userId: currentUser.uid,
+            status: 'pending',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+        });
         showToast('Assignment added!', 'success');
-        elements.addAssignmentModal.style.display = 'none';
-        elements.addAssignmentForm.reset();
     } catch (error) {
-        console.error('Error adding assignment:', error);
-        showToast('Failed to add assignment', 'error');
+        showToast(error.message, 'error');
     }
-});
+}
 
-elements.searchAssignments.addEventListener('input', (e) => {
-    const searchTerm = e.target.value.toLowerCase();
-    const filtered = assignments.filter(a => 
-        a.title.toLowerCase().includes(searchTerm) ||
-        (a.description && a.description.toLowerCase().includes(searchTerm)) ||
-        a.subject.toLowerCase().includes(searchTerm)
-    );
-    renderAssignments(filtered);
-});
+async function toggleAssignmentStatus(id, currentStatus) {
+    if (!currentUser) return;
+    try {
+        const newStatus = currentStatus === 'pending' ? 'completed' : 'pending';
+        const assignmentRef = doc(db, 'assignments', id);
+        await updateDoc(assignmentRef, {
+            status: newStatus,
+            updatedAt: serverTimestamp()
+        });
+        showToast(`Marked as ${newStatus}`, 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
 
-function renderAssignments(assignmentsList) {
-    if (!elements.assignmentsList) return;
+async function deleteAssignment(id) {
+    if (!currentUser) return;
+    if (!confirm('Delete this assignment?')) return;
+    try {
+        const assignmentRef = doc(db, 'assignments', id);
+        await deleteDoc(assignmentRef);
+        showToast('Assignment deleted', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// ===== NEW: RENDER ASSIGNMENTS WITH EVENT DELEGATION =====
+function renderAssignments(assignmentsToRender) {
+    const container = elements.assignmentsList;
     
-    if (assignmentsList.length === 0) {
-        elements.assignmentsList.innerHTML = '<div class="empty-state">No assignments yet. Click + to add one!</div>';
+    // Clear container and remove old listeners
+    container.innerHTML = '';
+    
+    if (!assignmentsToRender || assignmentsToRender.length === 0) {
+        container.innerHTML = `
+            <div class="assignment-card">
+                <div class="assignment-title">No assignments yet</div>
+                <p class="assignment-meta">Click + to add your first assignment</p>
+            </div>
+        `;
         return;
     }
     
-    elements.assignmentsList.innerHTML = assignmentsList.map(a => {
-        const dueDate = new Date(a.dueDate);
-        const isOverdue = !a.completed && dueDate < new Date();
-        const daysUntil = Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24));
+    // Create document fragment for better performance
+    const fragment = document.createDocumentFragment();
+    
+    assignmentsToRender.forEach(assignment => {
+        const dueDate = assignment.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : 'No due date';
+        const isOverdue = assignment.dueDate && new Date(assignment.dueDate) < new Date() && assignment.status === 'pending';
         
+        // Create card element
+        const card = document.createElement('div');
+        card.className = 'assignment-card';
+        if (isOverdue) card.style.borderLeftColor = '#ef4444';
+        
+        card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: start;">
+                <div style="flex: 1;">
+                    <div class="assignment-title">${assignment.title}</div>
+                    <p class="assignment-meta">${assignment.dueDate ? 'Due: ' + dueDate : 'No due date'}</p>
+                    ${assignment.subject ? `<p class="assignment-meta">Subject: ${assignment.subject}</p>` : ''}
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="assignment-action-btn" data-action="toggle" data-id="${assignment.id}" data-status="${assignment.status}" style="background: none; border: none; cursor: pointer; font-size: 18px;" title="Toggle status">
+                        ${assignment.status === 'pending' ? '⭕' : '✅'}
+                    </button>
+                    <button class="assignment-action-btn" data-action="delete" data-id="${assignment.id}" style="background: none; border: none; cursor: pointer; font-size: 18px;" title="Delete">
+                        🗑️
+                    </button>
+                </div>
+            </div>
+            <span class="assignment-status status-${assignment.status}">${assignment.status === 'pending' ? 'In Progress' : 'Completed'}</span>
+            ${isOverdue ? '<p style="color: #ef4444; font-size: 12px; margin-top: 8px;">⚠️ Overdue</p>' : ''}
+        `;
+        
+        fragment.appendChild(card);
+    });
+    
+    container.appendChild(fragment);
+}
+
+// ===== NEW: EVENT DELEGATION HANDLER =====
+function handleAssignmentAction(e) {
+    const button = e.target.closest('.assignment-action-btn');
+    if (!button) return;
+    
+    const action = button.dataset.action;
+    const id = button.dataset.id;
+    const status = button.dataset.status;
+    
+    if (action === 'toggle') {
+        toggleAssignmentStatus(id, status);
+    } else if (action === 'delete') {
+        deleteAssignment(id);
+    }
+}
+
+// Add the event listener to the container (DO THIS ONLY ONCE)
+elements.assignmentsList.addEventListener('click', handleAssignmentAction);
+
+// ===== HOME PAGE DATA =====
+function updateHomeStats() {
+    if (!assignments) return;
+    
+    const today = new Date().toDateString();
+    const active = assignments.filter(a => a.status === 'pending').length;
+    const completedToday = assignments.filter(a => {
+        if (a.status !== 'completed' || !a.updatedAt) return false;
+        const updatedDate = a.updatedAt.toDate ? a.updatedAt.toDate() : new Date(a.updatedAt);
+        return updatedDate.toDateString() === today;
+    }).length;
+    
+    animateCounter(elements.activeCount, active);
+    animateCounter(elements.completedCount, completedToday);
+    animateCounter(elements.totalCount, assignments.length);
+}
+
+function animateCounter(element, targetValue) {
+    const startValue = parseInt(element.textContent) || 0;
+    const duration = 500;
+    const startTime = performance.now();
+    
+    function updateCounter(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const currentValue = Math.floor(startValue + (targetValue - startValue) * progress);
+        element.textContent = currentValue;
+        if (progress < 1) requestAnimationFrame(updateCounter);
+    }
+    
+    requestAnimationFrame(updateCounter);
+}
+
+function loadHomePageData() {
+    if (!currentUser || !userProfile) return;
+    
+    const name = userProfile.name || 'Student';
+    elements.homeGreeting.textContent = `Welcome back, ${name}!`;
+    
+    updateHomeStats();
+    
+    const recentAssignments = assignments.slice(0, 5);
+    const recentList = elements.recentActivityList;
+    
+    if (recentAssignments.length === 0) {
+        recentList.innerHTML = '<p class="assignment-meta">No recent activity. Add your first assignment!</p>';
+        return;
+    }
+    
+    recentList.innerHTML = recentAssignments.map(assignment => {
+        const dueDate = assignment.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : 'No due date';
+        const timeAgo = getTimeAgo(assignment.updatedAt);
         return `
-            <div class="assignment-card ${a.completed ? 'completed' : ''} ${isOverdue ? 'overdue' : ''}">
-                <div class="assignment-header">
-                    <input type="checkbox" ${a.completed ? 'checked' : ''} 
-                           onchange="toggleAssignment('${a.id}', this.checked)">
-                    <div class="assignment-title">${a.title}</div>
-                    <div class="assignment-subject">${a.subject}</div>
+            <div class="activity-item" onclick="navigateTo('assignmentsPage')" style="cursor: pointer;">
+                <div>
+                    <div class="assignment-title">${assignment.title}</div>
+                    <p class="assignment-meta">${dueDate} • ${assignment.subject || 'General'} • ${timeAgo}</p>
                 </div>
-                ${a.description ? `<div class="assignment-desc">${a.description}</div>` : ''}
-                <div class="assignment-footer">
-                    <div class="assignment-date">
-                        ${isOverdue ? '⚠️ Overdue' : daysUntil === 0 ? '📅 Due today' : `📅 ${daysUntil} days left`}
-                    </div>
-                    <button class="delete-btn" onclick="deleteAssignment('${a.id}')">🗑️</button>
-                </div>
+                <span class="assignment-status status-${assignment.status}">${assignment.status === 'pending' ? 'In Progress' : 'Completed'}</span>
             </div>
         `;
     }).join('');
 }
 
-window.toggleAssignment = async (id, completed) => {
-    try {
-        await updateDoc(doc(db, 'assignments', id), {
-            completed: completed,
-            updatedAt: serverTimestamp()
-        });
-        showToast(completed ? 'Assignment completed! 🎉' : 'Marked as incomplete', 'success');
-    } catch (error) {
-        console.error('Error updating assignment:', error);
-        showToast('Failed to update assignment', 'error');
-    }
-};
-
-window.deleteAssignment = async (id) => {
-    if (!confirm('Delete this assignment?')) return;
+function getTimeAgo(timestamp) {
+    if (!timestamp) return 'Just now';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
     
-    try {
-        await deleteDoc(doc(db, 'assignments', id));
-        showToast('Assignment deleted', 'success');
-    } catch (error) {
-        console.error('Error deleting assignment:', error);
-        showToast('Failed to delete assignment', 'error');
-    }
-};
-
-// ===== HOME PAGE DATA =====
-function loadHomePageData() {
-    if (!currentUser) return;
-    
-    const today = new Date().toDateString();
-    const recentActivities = assignments
-        .filter(a => new Date(a.updatedAt?.toDate?.() || a.updatedAt).toDateString() === today)
-        .slice(0, 5);
-    
-    if (elements.recentActivityList) {
-        if (recentActivities.length === 0) {
-            elements.recentActivityList.innerHTML = '<div class="empty-state">No recent activity today</div>';
-        } else {
-            elements.recentActivityList.innerHTML = recentActivities.map(a => `
-                <div class="activity-item">
-                    <div class="activity-icon">${a.completed ? '✅' : '📝'}</div>
-                    <div class="activity-content">
-                        <div class="activity-title">${a.title}</div>
-                        <div class="activity-time">${a.subject}</div>
-                    </div>
-                </div>
-            `).join('');
-        }
-    }
-}
-
-function updateHomeStats() {
-    const active = assignments.filter(a => !a.completed).length;
-    const completedToday = assignments.filter(a => {
-        if (!a.completed) return false;
-        const updateDate = new Date(a.updatedAt?.toDate?.() || a.updatedAt);
-        return updateDate.toDateString() === new Date().toDateString();
-    }).length;
-    
-    if (elements.activeCount) elements.activeCount.textContent = active;
-    if (elements.completedCount) elements.completedCount.textContent = completedToday;
-    if (elements.totalCount) elements.totalCount.textContent = assignments.length;
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
 }
 
 // ===== PROFILE SETTINGS =====
 function loadProfileSettings() {
-    if (!elements.profileSettings) return;
+    if (!currentUser || !userProfile) return;
     
-    const darkModeEnabled = document.body.getAttribute('data-theme') === 'dark';
+    const settingsContainer = elements.profileSettings;
+    const accountCreated = currentUser.metadata.creationTime ? 
+        new Date(currentUser.metadata.creationTime).toLocaleDateString() : 'Unknown';
     
-    elements.profileSettings.innerHTML = `
-        <div class="setting-item">
-            <div class="setting-info">
-                <div class="setting-label">Dark Mode</div>
-                <div class="setting-desc">Switch between light and dark theme</div>
+    const userMetrics = {
+        totalChats: chatHistory.length,
+        totalTokens: metrics.totalTokens,
+        totalCost: metrics.totalCost,
+        totalAssignments: assignments.length
+    };
+    
+    settingsContainer.innerHTML = `
+        <div class="assignment-card">
+            <h4 style="margin-bottom: 12px;">📊 Usage Statistics</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px;">
+                <div>AI Chats: <strong>${userMetrics.totalChats}</strong></div>
+                <div>Tokens Used: <strong>${userMetrics.totalTokens}</strong></div>
+                <div>Total Cost: <strong>$${userMetrics.totalCost.toFixed(4)}</strong></div>
+                <div>Assignments: <strong>${userMetrics.totalAssignments}</strong></div>
             </div>
-            <label class="toggle">
-                <input type="checkbox" id="darkModeToggle" ${darkModeEnabled ? 'checked' : ''}>
-                <span class="toggle-slider"></span>
-            </label>
+        </div>
+        
+        <div class="assignment-card">
+            <h4 style="margin-bottom: 12px;">🔧 Preferences</h4>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span>Dark Mode</span>
+                <label class="switch">
+                    <input type="checkbox" id="darkModeToggle">
+                    <span class="slider round"></span>
+                </label>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span>Notifications</span>
+                <label class="switch">
+                    <input type="checkbox" id="notificationsToggle" checked>
+                    <span class="slider round"></span>
+                </label>
+            </div>
+            <p class="assignment-meta">Account created: ${accountCreated}</p>
+        </div>
+        
+        <div class="assignment-card">
+            <h4 style="margin-bottom: 12px;">⚙️ Account Actions</h4>
+            <button class="btn btn-secondary" onclick="resetPassword()" style="margin-bottom: 8px;">
+                Reset Password
+            </button>
+            <button class="btn btn-danger" onclick="deleteAccount()">
+                Delete Account
+            </button>
         </div>
     `;
     
-    document.getElementById('darkModeToggle').addEventListener('change', (e) => {
-        const isDark = e.target.checked;
-        if (isDark) {
-            document.body.setAttribute('data-theme', 'dark');
-        } else {
-            document.body.removeAttribute('data-theme');
-        }
-        localStorage.setItem('darkMode', isDark);
-    });
+    const darkModeToggle = document.getElementById('darkModeToggle');
+    const savedDarkMode = localStorage.getItem('darkMode') === 'true';
+    if (darkModeToggle) {
+        darkModeToggle.checked = savedDarkMode;
+        darkModeToggle.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                document.body.setAttribute('data-theme', 'dark');
+            } else {
+                document.body.removeAttribute('data-theme');
+            }
+            localStorage.setItem('darkMode', e.target.checked);
+        });
+    }
+    
+    if (savedDarkMode) {
+        document.body.setAttribute('data-theme', 'dark');
+    }
+}
+
+async function resetPassword() {
+    if (!currentUser) return;
+    try {
+        await sendPasswordResetEmail(auth, currentUser.email);
+        showToast('Password reset email sent!', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+async function deleteAccount() {
+    if (!currentUser) return;
+    if (!confirm('Are you sure? This will permanently delete your account and all data.')) return;
+    
+    try {
+        showToast('Deleting account...', 'info');
+        const q = query(collection(db, 'assignments'), where('userId', '==', currentUser.uid));
+        const snapshot = await getDocs(q);
+        const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+        
+        await deleteDoc(doc(db, 'users', currentUser.uid));
+        
+        showToast('Account deleted', 'success');
+        await signOut(auth);
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
 }
 
 // ===== CHAT FUNCTIONALITY =====
 elements.sendBtn.addEventListener('click', sendMessage);
 elements.chatInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-    }
+    if (e.key === 'Enter') sendMessage();
 });
 
 async function sendMessage() {
     const message = elements.chatInput.value.trim();
+    if (!message) return;
     
-    if (!message) {
-        showToast('Please enter a message', 'error');
+    // Input validation
+    if (message.length < 2) {
+        showToast('Message too short', 'error');
         return;
     }
     
