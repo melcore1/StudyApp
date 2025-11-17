@@ -36,21 +36,12 @@ let userProfile = { name: '', email: '' };
 // ===== CONFIGURATION =====
 // ⚠️ WARNING: Keep this key private! Do NOT commit to public Git repos!
 const OPENROUTER_KEY = "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";
-const DEFAULT_AI_MODEL = "meta-llama/llama-3.1-8b-instruct:free"; // Updated to more reliable model
+const DEFAULT_AI_MODEL = "meta-llama/llama-3.2-3b-instruct:free"; // Back to stable model
 const MODEL_PRICING = { input: 0.00, output: 0.00 }; // It's FREE!
 
 // Rate limiting configuration
 const REQUEST_COOLDOWN = 2000; // 2 seconds between requests
 let lastRequestTime = 0;
-
-// Fallback models list
-const FALLBACK_MODELS = [
-    "meta-llama/llama-3.1-8b-instruct:free",
-    "meta-llama/llama-3.2-3b-instruct:free",
-    "mistralai/mistral-7b-instruct:free",
-    "microsoft/phi-3-mini-128k-instruct:free",
-    "qwen/qwen-2-7b-instruct:free"
-];
 
 // ===== INITIALIZATION =====
 const app = initializeApp(firebaseConfig);
@@ -102,11 +93,6 @@ onAuthStateChanged(auth, async (user) => {
         currentUser = user;
         await loadUserProfile();
         setupRealtimeListeners();
-        
-        // Initialize AI in background with system prompt
-        initializeAIBackground().catch(err => {
-            console.warn('Background AI init failed (non-critical):', err);
-        });
         
         // FIX: Ensure we navigate to home page after auth with small delay
         setTimeout(() => {
@@ -225,7 +211,7 @@ elements.loginForm.addEventListener('submit', async (e) => {
         showToast('Logging in...', 'info');
         console.log('Attempting login...');
         
-        // FIX: Store the result and wait for auth state change
+        // FIX: Store result and wait for auth state change
         const result = await signInWithEmailAndPassword(auth, email, password);
         console.log('Login successful:', result.user.uid);
         
@@ -545,71 +531,28 @@ function getTimeAgo(timestamp) {
     return date.toLocaleDateString();
 }
 
-// ===== FETCH FREE MODELS FROM OPENROUTER =====
-async function fetchFreeModels() {
+// ===== FETCH MODELS BASED ON USER'S API KEY =====
+async function fetchModelsForUser(apiKey = null) {
+    const keyToUse = apiKey || OPENROUTER_KEY;
+    
     try {
-        console.log('📡 Fetching free models from OpenRouter...');
+        console.log('📡 Fetching models for user with API key...');
         const response = await fetch('https://openrouter.ai/api/v1/models', {
             headers: {
-                'Authorization': `Bearer ${OPENROUTER_KEY}`
+                'Authorization': `Bearer ${keyToUse}`
             }
         });
         
         if (!response.ok) {
+            if (response.status === 401) {
+                throw new Error('Invalid API key. Please check your API key and try again.');
+            }
             throw new Error('Failed to fetch models');
         }
         
         const data = await response.json();
         
-        // Filter for free models and sort by name
-        const freeModels = data.data
-            .filter(model => {
-                // Check if model is free (pricing is 0 or has "free" in ID)
-                const isFree = model.id.includes(':free') || 
-                              (model.pricing?.prompt === '0' && model.pricing?.completion === '0');
-                return isFree;
-            })
-            .map(model => ({
-                value: model.id,
-                name: model.name || model.id,
-                contextLength: model.context_length
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name));
-        
-        console.log(`✅ Found ${freeModels.length} free models`);
-        return freeModels;
-        
-    } catch (error) {
-        console.error('❌ Error fetching models:', error);
-        // Fallback to hardcoded list if API fails
-        return [
-            { value: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Powerful)' },
-            { value: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Fast & Reliable)' },
-            { value: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Balanced)' },
-            { value: 'qwen/qwen-2-7b-instruct:free', name: 'Qwen 2 7B (Smart)' },
-            { value: 'microsoft/phi-3-mini-128k-instruct:free', name: 'Phi-3 Mini (Compact)' },
-            { value: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Google)' }
-        ];
-    }
-}
-
-// ===== FETCH ALL MODELS (FREE + PAID) =====
-async function fetchAllModels() {
-    try {
-        console.log('📡 Fetching all models from OpenRouter...');
-        const response = await fetch('https://openrouter.ai/api/v1/models', {
-            headers: {
-                'Authorization': `Bearer ${OPENROUTER_KEY}`
-            }
-        });
-        
-        if (!response.ok) {
-            throw new Error('Failed to fetch models');
-        }
-        
-        const data = await response.json();
-        
-        // Map all models with free indicator
+        // Map all models with their actual pricing and availability
         const allModels = data.data
             .map(model => {
                 const isFree = model.id.includes(':free') || 
@@ -618,67 +561,39 @@ async function fetchAllModels() {
                     value: model.id,
                     name: model.name || model.id,
                     contextLength: model.context_length,
-                    isFree: isFree
+                    isFree: isFree,
+                    pricing: model.pricing || { prompt: '0', completion: '0' }
                 };
             })
             .sort((a, b) => a.name.localeCompare(b.name));
         
-        console.log(`✅ Found ${allModels.length} total models`);
+        console.log(`✅ Found ${allModels.length} models available to user`);
         return allModels;
         
     } catch (error) {
         console.error('❌ Error fetching models:', error);
-        // Fallback to hardcoded list if API fails
+        
+        // If using custom API key fails, fallback to default key
+        if (apiKey && apiKey !== OPENROUTER_KEY) {
+            console.log('🔄 Falling back to default API key for model list...');
+            return fetchModelsForUser(OPENROUTER_KEY);
+        }
+        
+        // Final fallback to hardcoded list
         return [
-            { value: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Powerful)', isFree: true },
-            { value: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Fast & Reliable)', isFree: true },
-            { value: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Balanced)', isFree: true },
-            { value: 'qwen/qwen-2-7b-instruct:free', name: 'Qwen 2 7B (Smart)', isFree: true },
-            { value: 'microsoft/phi-3-mini-128k-instruct:free', name: 'Phi-3 Mini (Compact)', isFree: true },
-            { value: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Google)', isFree: true },
-            { value: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (Paid)', isFree: false },
-            { value: 'openai/gpt-4o', name: 'GPT-4o (Paid)', isFree: false }
+            { value: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Fast & Reliable)', isFree: true, pricing: { prompt: '0', completion: '0' } },
+            { value: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Powerful)', isFree: true, pricing: { prompt: '0', completion: '0' } },
+            { value: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Balanced)', isFree: true, pricing: { prompt: '0', completion: '0' } },
+            { value: 'qwen/qwen-2-7b-instruct:free', name: 'Qwen 2 7B (Smart)', isFree: true, pricing: { prompt: '0', completion: '0' } },
+            { value: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Google)', isFree: true, pricing: { prompt: '0', completion: '0' } }
         ];
     }
 }
 
-// ===== BACKGROUND AI INITIALIZATION WITH SYSTEM PROMPT =====
-async function initializeAIBackground() {
-    if (!currentUser) return;
-    
-    try {
-        console.log('🤖 Initializing AI in background...');
-        
-        const systemPrompt = `You are a helpful AI assistant integrated into StudyApp, an educational productivity application. 
-        
-Your role is to:
-- Help students with their homework and assignments
-- Explain complex concepts in simple terms
-- Provide study tips and learning strategies
-- Answer questions across various subjects
-- Be encouraging and supportive
-
-Keep responses:
-- Clear and concise
-- Age-appropriate for students
-- Educational and informative
-- Friendly and encouraging
-
-Current user: ${userProfile.name || 'Student'}
-Current date: ${new Date().toLocaleDateString()}`;
-
-        // Send a silent initialization message
-        const response = await callOpenRouterWithFallback(systemPrompt);
-        console.log('✅ AI initialized successfully');
-        
-        // Don't display this message to user, just initialize the connection
-        return true;
-        
-    } catch (error) {
-        console.warn('⚠️ AI initialization failed (non-critical):', error.message);
-        // This is non-critical, so we don't show error to user
-        return false;
-    }
+// ===== FETCH FREE MODELS ONLY =====
+async function fetchFreeModels(apiKey = null) {
+    const allModels = await fetchModelsForUser(apiKey);
+    return allModels.filter(model => model.isFree);
 }
 
 // ===== PROFILE SETTINGS =====
@@ -686,11 +601,11 @@ async function loadProfileSettings() {
     if (!currentUser || !userProfile) return;
     
     // Load user's preferences from Firestore
-    let defaultModel = DEFAULT_AI_MODEL; // User's preferred free model
+    let defaultModel = DEFAULT_AI_MODEL;
     let customApiSettings = {
         enabled: false,
         apiKey: '',
-        model: 'meta-llama/llama-3.1-8b-instruct:free'
+        model: DEFAULT_AI_MODEL
     };
     
     try {
@@ -719,9 +634,25 @@ async function loadProfileSettings() {
         totalAssignments: assignments.length
     };
     
-    // Fetch available free models from OpenRouter API
-    const freeModels = await fetchFreeModels();
-    const allModels = await fetchAllModels();
+    // Fetch models based on user's API key
+    let freeModels, allModels;
+    
+    if (customApiSettings.enabled && customApiSettings.apiKey) {
+        console.log('🔑 Using custom API key to fetch models...');
+        try {
+            allModels = await fetchModelsForUser(customApiSettings.apiKey);
+            freeModels = allModels.filter(model => model.isFree);
+        } catch (error) {
+            console.error('Failed to fetch models with custom API key:', error);
+            showToast('Failed to load models with your API key. Using default models.', 'error');
+            allModels = await fetchModelsForUser(OPENROUTER_KEY);
+            freeModels = allModels.filter(model => model.isFree);
+        }
+    } else {
+        console.log('🆓 Using default API key to fetch models...');
+        allModels = await fetchModelsForUser(OPENROUTER_KEY);
+        freeModels = allModels.filter(model => model.isFree);
+    }
     
     settingsContainer.innerHTML = `
         <div class="assignment-card">
@@ -743,7 +674,7 @@ async function loadProfileSettings() {
             <ul style="font-size: 14px; margin-left: 20px; margin-bottom: 8px;">
                 <li>Wait a few minutes before trying again</li>
                 <li>Try a different model from the dropdown</li>
-                <li>Consider using your own API key for higher limits</li>
+                <li>Use your own API key for higher limits</li>
             </ul>
             <p style="font-size: 14px;">
                 <a href="https://openrouter.ai/keys" target="_blank" style="color: #1e40af; text-decoration: underline;">Get your free API key here</a>
@@ -800,7 +731,7 @@ async function loadProfileSettings() {
         <div class="assignment-card">
             <h4 style="margin-bottom: 12px;">🔑 Advanced: Custom API Key</h4>
             <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">
-                Use your own OpenRouter API key to access all models (free + paid)
+                Use your own OpenRouter API key to access all models you have access to
             </p>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <span>Enable Custom API Key</span>
@@ -827,8 +758,8 @@ async function loadProfileSettings() {
                 
                 <div class="form-group">
                     <label style="font-size: 14px; margin-bottom: 6px; display: block;">
-                        AI Model (All Models)
-                        <span style="color: var(--text-secondary); font-weight: normal;">(${allModels.length} total: free + paid)</span>
+                        AI Model (Available to You)
+                        <span style="color: var(--text-secondary); font-weight: normal;">(${allModels.length} models)</span>
                     </label>
                     <select 
                         id="customModelSelect" 
@@ -841,7 +772,7 @@ async function loadProfileSettings() {
                         `).join('')}
                     </select>
                     <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-                        🆓 = Free models | 💰 = Paid models (requires credits)
+                        🆓 = Free models | 💰 = Paid models (requires credits on your account)
                     </p>
                 </div>
                 
@@ -927,7 +858,14 @@ async function loadProfileSettings() {
                 // Update local state
                 customApiSettings.enabled = isEnabled;
                 
-                showToast(isEnabled ? 'Custom API enabled' : 'Custom API disabled', 'success');
+                // Refresh the page to reload models with new API key
+                if (isEnabled && customApiSettings.apiKey) {
+                    showToast('Custom API enabled! Refreshing models...', 'success');
+                    setTimeout(() => loadProfileSettings(), 1000);
+                } else {
+                    showToast(isEnabled ? 'Custom API enabled' : 'Custom API disabled', 'success');
+                }
+                
                 console.log('✅ Custom API toggle saved:', isEnabled);
             } catch (error) {
                 console.error('Error saving toggle state:', error);
@@ -962,8 +900,11 @@ async function loadProfileSettings() {
                     }
                 });
                 
-                showToast('Custom API settings saved!', 'success');
+                showToast('Custom API settings saved! Refreshing models...', 'success');
                 console.log('✅ Custom API key and model saved');
+                
+                // Refresh the page to reload models with new API key
+                setTimeout(() => loadProfileSettings(), 1000);
             } catch (error) {
                 console.error('Error saving custom API settings:', error);
                 showToast('Failed to save settings', 'error');
@@ -1052,68 +993,30 @@ async function sendMessage() {
     elements.sendBtn.disabled = true;
     const loadingMsg = addMessage('Thinking...', 'ai', true);
     
-    // 🔥 NEW: RETRY LOGIC WITH EXPONENTIAL BACKOFF
-    let retries = 0;
-    const maxRetries = 5;
-    
-    while (retries < maxRetries) {
-        try {
-            const response = await callOpenRouterWithFallback(message);
-            loadingMsg.remove();
-            addMessage(response.content, 'ai');
-            updateMetrics(response.metrics);
-            saveChatHistory(message, response.content, response.metrics);
-            elements.sendBtn.disabled = false;
-            return; // Success!
-        } catch (error) {
-            retries++;
-            console.error(`💥 Attempt ${retries}/${maxRetries} failed:`, error);
-            
-            if (retries < maxRetries) {
-                // Longer wait times with more randomness
-                const baseWait = Math.pow(2, retries) * 1000;
-                const jitter = Math.random() * 1000;
-                const waitTime = baseWait + jitter;
-                
-                console.log(`⏳ Retrying in ${waitTime}ms...`);
-                
-                // Update loading message to show retry
-                const bubble = loadingMsg.querySelector('.message-bubble');
-                if (bubble) {
-                    bubble.innerHTML = `<div class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></div> Retry ${retries}/${maxRetries}... (${Math.round(waitTime/1000)}s)`;
-                }
-                
-                await new Promise(resolve => setTimeout(resolve, waitTime));
-            } else {
-                // All retries exhausted
-                loadingMsg.remove();
-                const errorMessage = error.message || 'Unknown error';
-                
-                // More user-friendly error messages
-                let userMessage = errorMessage;
-                if (errorMessage.includes('rate limit')) {
-                    userMessage = "OpenRouter is experiencing high demand. Please wait a few minutes before trying again.";
-                } else if (errorMessage.includes('404')) {
-                    userMessage = "AI model configuration issue. Please try a different model in settings.";
-                }
-                
-                addMessage(`❌ ${userMessage}`, 'ai');
-                showToast(`AI Error: ${errorMessage}`, 'error');
-                console.error('🚫 Full error details:', error);
-            }
-        }
+    try {
+        const response = await callOpenRouter(message);
+        loadingMsg.remove();
+        addMessage(response.content, 'ai');
+        updateMetrics(response.metrics);
+        saveChatHistory(message, response.content, response.metrics);
+        elements.sendBtn.disabled = false;
+    } catch (error) {
+        loadingMsg.remove();
+        const errorMessage = error.message || 'Unknown error';
+        addMessage(`❌ ${errorMessage}`, 'ai');
+        showToast(`AI Error: ${errorMessage}`, 'error');
+        console.error('🚫 Full error details:', error);
+        elements.sendBtn.disabled = false;
     }
-    
-    elements.sendBtn.disabled = false;
 }
 
-// ===== IMPROVED API CALL WITH BETTER ERROR HANDLING AND CUSTOM SETTINGS =====
-async function callOpenRouter(message, modelOverride = null) {
+// ===== API CALL WITH USER-SPECIFIC MODELS =====
+async function callOpenRouter(message) {
     const startTime = performance.now();
     
     // Model priority: Custom API > User's default > App default
     let apiKey = OPENROUTER_KEY;
-    let model = modelOverride || DEFAULT_AI_MODEL;
+    let model = DEFAULT_AI_MODEL;
     
     if (currentUser) {
         try {
@@ -1124,16 +1027,16 @@ async function callOpenRouter(message, modelOverride = null) {
                 // Priority 1: Check if custom API is enabled
                 if (userData.customApiSettings?.enabled && userData.customApiSettings?.apiKey) {
                     apiKey = userData.customApiSettings.apiKey;
-                    model = modelOverride || userData.customApiSettings.model || DEFAULT_AI_MODEL;
+                    model = userData.customApiSettings.model || DEFAULT_AI_MODEL;
                     console.log('✅ Using custom API with model:', model);
                 } 
                 // Priority 2: Use user's default free model preference
-                else if (userData.defaultModel && !modelOverride) {
+                else if (userData.defaultModel) {
                     model = userData.defaultModel;
                     console.log('✅ Using user default model:', model);
                 }
                 // Priority 3: Use app default (DEFAULT_AI_MODEL constant)
-                else if (!modelOverride) {
+                else {
                     console.log('✅ Using app default model:', model);
                 }
             }
@@ -1144,28 +1047,25 @@ async function callOpenRouter(message, modelOverride = null) {
     }
     
     try {
-        // Remove headers that might trigger the zero data retention policy
         const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
-                // Removed: 'HTTP-Referer' and 'X-Title' headers that cause 404 errors
+                'Content-Type': 'application/json',
+                'HTTP-Referer': window.location.origin,
+                'X-Title': 'StudyApp'
             },
             body: JSON.stringify({
                 model: model,
                 messages: [{ role: 'user', content: message }]
-                // Removed any data retention policy settings
             })
         });
         
-        // Get the response body first for better error messages
         const responseData = await response.json();
         
         if (!response.ok) {
             console.error('❌ OpenRouter API Error Response:', responseData);
             
-            // Extract specific error details
             let errorMsg = 'API request failed';
             if (responseData.error) {
                 errorMsg = responseData.error.message || responseData.error.code || errorMsg;
@@ -1174,11 +1074,11 @@ async function callOpenRouter(message, modelOverride = null) {
                 if (errorMsg.includes('rate limit')) {
                     errorMsg = 'Rate limit reached. Please wait a moment and try again.';
                 } else if (errorMsg.includes('insufficient credits') || errorMsg.includes('quota')) {
-                    errorMsg = 'API quota exceeded. Consider using a custom API key in settings.';
+                    errorMsg = 'API quota exceeded. Check your OpenRouter account balance.';
                 } else if (errorMsg.includes('invalid') || errorMsg.includes('authentication')) {
                     errorMsg = 'Invalid API key. Please check your settings.';
                 } else if (response.status === 404) {
-                    errorMsg = 'Model not found or incompatible with current settings. Please try a different model.';
+                    errorMsg = 'Model not found or you do not have access to this model.';
                 } else if (response.status === 502 || response.status === 503) {
                     errorMsg = 'AI service temporarily unavailable. Please try again.';
                 }
@@ -1187,7 +1087,6 @@ async function callOpenRouter(message, modelOverride = null) {
             throw new Error(`API Error (${response.status}): ${errorMsg}`);
         }
         
-        // Validate response structure
         if (!responseData.choices || !responseData.choices[0] || !responseData.choices[0].message) {
             throw new Error('Invalid API response structure');
         }
@@ -1208,7 +1107,6 @@ async function callOpenRouter(message, modelOverride = null) {
         };
         
     } catch (error) {
-        // Better error categorization
         if (error instanceof TypeError && error.message === 'Failed to fetch') {
             throw new Error('Network error: Cannot reach OpenRouter API. Check your internet connection.');
         }
@@ -1217,41 +1115,8 @@ async function callOpenRouter(message, modelOverride = null) {
             throw new Error('Network error: Unable to connect to AI service.');
         }
         
-        // Re-throw with the original error message if it's already formatted
         throw error;
     }
-}
-
-// ===== MODEL FALLBACK SYSTEM =====
-async function callOpenRouterWithFallback(message) {
-    let lastError = null;
-    
-    // Try the primary model first
-    try {
-        return await callOpenRouter(message);
-    } catch (error) {
-        lastError = error;
-        console.warn('Primary model failed, trying fallback models:', error);
-    }
-    
-    // Try fallback models if the primary fails
-    for (const model of FALLBACK_MODELS) {
-        try {
-            showToast(`Trying alternative model: ${model.split(':')[0]}...`, 'info');
-            
-            // FIXED: Pass model as parameter instead of reassigning const
-            const response = await callOpenRouter(message, model);
-            
-            showToast(`Connected with model: ${model.split(':')[0]}`, 'success');
-            return response;
-        } catch (error) {
-            lastError = error;
-            console.warn(`Fallback model ${model} also failed:`, error);
-        }
-    }
-    
-    // If all models fail, throw the last error
-    throw lastError;
 }
 
 function addMessage(content, sender, isLoading = false) {
