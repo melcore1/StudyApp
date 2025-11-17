@@ -626,7 +626,8 @@ Current date: ${new Date().toLocaleDateString()}`;
 async function loadProfileSettings() {
     if (!currentUser || !userProfile) return;
     
-    // Load user's custom API settings from Firestore
+    // Load user's preferences from Firestore
+    let defaultModel = AI_MODEL; // User's preferred free model
     let customApiSettings = {
         enabled: false,
         apiKey: '',
@@ -635,11 +636,17 @@ async function loadProfileSettings() {
     
     try {
         const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        if (userDoc.exists() && userDoc.data().customApiSettings) {
-            customApiSettings = { ...customApiSettings, ...userDoc.data().customApiSettings };
+        if (userDoc.exists()) {
+            const data = userDoc.data();
+            if (data.defaultModel) {
+                defaultModel = data.defaultModel;
+            }
+            if (data.customApiSettings) {
+                customApiSettings = { ...customApiSettings, ...data.customApiSettings };
+            }
         }
     } catch (error) {
-        console.error('Error loading API settings:', error);
+        console.error('Error loading settings:', error);
     }
     
     const settingsContainer = elements.profileSettings;
@@ -654,7 +661,8 @@ async function loadProfileSettings() {
     };
     
     // Fetch available free models from OpenRouter API
-    const availableModels = await fetchFreeModels();
+    const freeModels = await fetchFreeModels();
+    const allModels = await fetchAllModels();
     
     settingsContainer.innerHTML = `
         <div class="assignment-card">
@@ -686,10 +694,41 @@ async function loadProfileSettings() {
             <p class="assignment-meta">Account created: ${accountCreated}</p>
         </div>
         
+        <!-- FREE MODEL SELECTION (Always visible) -->
         <div class="assignment-card">
-            <h4 style="margin-bottom: 12px;">🤖 AI Settings</h4>
+            <h4 style="margin-bottom: 12px;">🤖 Default AI Model (Free)</h4>
+            <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">
+                Choose your preferred free AI model. No API key needed!
+            </p>
+            <div class="form-group">
+                <label style="font-size: 14px; margin-bottom: 6px; display: block;">
+                    Select Model
+                    <span style="color: var(--text-secondary); font-weight: normal;">(${freeModels.length} available)</span>
+                </label>
+                <select 
+                    id="defaultModelSelect" 
+                    style="width: 100%; padding: 10px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--card-bg); color: var(--text-primary); margin-bottom: 12px;"
+                >
+                    ${freeModels.map(model => `
+                        <option value="${model.value}" ${defaultModel === model.value ? 'selected' : ''}>
+                            ${model.name}${model.contextLength ? ` (${model.contextLength.toLocaleString()} tokens)` : ''}
+                        </option>
+                    `).join('')}
+                </select>
+                <button class="btn btn-primary" id="saveDefaultModelBtn" style="width: 100%;">
+                    Save Default Model
+                </button>
+            </div>
+        </div>
+        
+        <!-- CUSTOM API SETTINGS (Advanced) -->
+        <div class="assignment-card">
+            <h4 style="margin-bottom: 12px;">🔑 Advanced: Custom API Key</h4>
+            <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">
+                Use your own OpenRouter API key to access all models (free + paid)
+            </p>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <span>Use Custom OpenRouter API Key</span>
+                <span>Enable Custom API Key</span>
                 <label class="switch">
                     <input type="checkbox" id="customApiToggle" ${customApiSettings.enabled ? 'checked' : ''}>
                     <span class="slider round"></span>
@@ -713,26 +752,26 @@ async function loadProfileSettings() {
                 
                 <div class="form-group">
                     <label style="font-size: 14px; margin-bottom: 6px; display: block;">
-                        AI Model 
-                        <span style="color: var(--text-secondary); font-weight: normal;">(${availableModels.length} free models available)</span>
+                        AI Model (All Models)
+                        <span style="color: var(--text-secondary); font-weight: normal;">(${allModels.length} total: free + paid)</span>
                     </label>
                     <select 
                         id="customModelSelect" 
                         style="width: 100%; padding: 10px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--card-bg); color: var(--text-primary);"
                     >
-                        ${availableModels.map(model => `
+                        ${allModels.map(model => `
                             <option value="${model.value}" ${customApiSettings.model === model.value ? 'selected' : ''}>
-                                ${model.name}${model.contextLength ? ` (${model.contextLength.toLocaleString()} tokens)` : ''}
+                                ${model.name}${model.contextLength ? ` (${model.contextLength.toLocaleString()} tokens)` : ''} ${model.isFree ? '🆓' : '💰'}
                             </option>
                         `).join('')}
                     </select>
                     <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-                        💡 All models are free! Updated automatically from OpenRouter.
+                        🆓 = Free models | 💰 = Paid models (requires credits)
                     </p>
                 </div>
                 
-                <button class="btn btn-primary" id="saveApiSettingsBtn" style="margin-top: 12px; width: 100%;">
-                    Save AI Settings
+                <button class="btn btn-primary" id="saveCustomApiBtn" style="margin-top: 12px; width: 100%;">
+                    Save Custom API Settings
                 </button>
             </div>
         </div>
@@ -767,43 +806,91 @@ async function loadProfileSettings() {
         document.body.setAttribute('data-theme', 'dark');
     }
     
-    // Custom API toggle
+    // 🔥 FIX #1: Save default model button
+    const saveDefaultModelBtn = document.getElementById('saveDefaultModelBtn');
+    if (saveDefaultModelBtn) {
+        saveDefaultModelBtn.addEventListener('click', async () => {
+            const selectedModel = document.getElementById('defaultModelSelect').value;
+            
+            try {
+                showToast('Saving default model...', 'info');
+                
+                await updateDoc(doc(db, 'users', currentUser.uid), {
+                    defaultModel: selectedModel
+                });
+                
+                showToast('Default model saved! 🎉', 'success');
+                console.log('✅ Default model set to:', selectedModel);
+            } catch (error) {
+                console.error('Error saving default model:', error);
+                showToast('Failed to save default model', 'error');
+            }
+        });
+    }
+    
+    // 🔥 FIX #2: Custom API toggle - save immediately when changed
     const customApiToggle = document.getElementById('customApiToggle');
     const customApiContainer = document.getElementById('customApiContainer');
     
     if (customApiToggle) {
-        customApiToggle.addEventListener('change', (e) => {
-            customApiContainer.style.display = e.target.checked ? 'block' : 'none';
+        customApiToggle.addEventListener('change', async (e) => {
+            const isEnabled = e.target.checked;
+            customApiContainer.style.display = isEnabled ? 'block' : 'none';
+            
+            // Save the enabled/disabled state immediately
+            try {
+                showToast(isEnabled ? 'Enabling custom API...' : 'Disabling custom API...', 'info');
+                
+                await updateDoc(doc(db, 'users', currentUser.uid), {
+                    customApiSettings: {
+                        enabled: isEnabled,
+                        apiKey: customApiSettings.apiKey,
+                        model: customApiSettings.model
+                    }
+                });
+                
+                // Update local state
+                customApiSettings.enabled = isEnabled;
+                
+                showToast(isEnabled ? 'Custom API enabled' : 'Custom API disabled', 'success');
+                console.log('✅ Custom API toggle saved:', isEnabled);
+            } catch (error) {
+                console.error('Error saving toggle state:', error);
+                showToast('Failed to save setting', 'error');
+                // Revert toggle on error
+                customApiToggle.checked = !isEnabled;
+                customApiContainer.style.display = !isEnabled ? 'block' : 'none';
+            }
         });
     }
     
-    // Save API settings button
-    const saveApiSettingsBtn = document.getElementById('saveApiSettingsBtn');
-    if (saveApiSettingsBtn) {
-        saveApiSettingsBtn.addEventListener('click', async () => {
-            const enabled = document.getElementById('customApiToggle').checked;
+    // Save custom API settings button (API key and model)
+    const saveCustomApiBtn = document.getElementById('saveCustomApiBtn');
+    if (saveCustomApiBtn) {
+        saveCustomApiBtn.addEventListener('click', async () => {
             const apiKey = document.getElementById('customApiKeyInput').value.trim();
             const model = document.getElementById('customModelSelect').value;
             
-            if (enabled && !apiKey) {
+            if (!apiKey) {
                 showToast('Please enter an API key', 'error');
                 return;
             }
             
             try {
-                showToast('Saving settings...', 'info');
+                showToast('Saving custom API settings...', 'info');
                 
                 await updateDoc(doc(db, 'users', currentUser.uid), {
                     customApiSettings: {
-                        enabled: enabled,
+                        enabled: customApiSettings.enabled, // Keep current toggle state
                         apiKey: apiKey,
                         model: model
                     }
                 });
                 
-                showToast('AI settings saved successfully!', 'success');
+                showToast('Custom API settings saved!', 'success');
+                console.log('✅ Custom API key and model saved');
             } catch (error) {
-                console.error('Error saving API settings:', error);
+                console.error('Error saving custom API settings:', error);
                 showToast('Failed to save settings', 'error');
             }
         });
@@ -929,24 +1016,35 @@ async function sendMessage() {
 async function callOpenRouter(message) {
     const startTime = performance.now();
     
-    // Get custom API settings from Firestore if available
+    // Model priority: Custom API > User's default > App default
     let apiKey = OPENROUTER_KEY;
     let model = AI_MODEL;
     
     if (currentUser) {
         try {
             const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-            if (userDoc.exists() && userDoc.data().customApiSettings) {
-                const customSettings = userDoc.data().customApiSettings;
-                if (customSettings.enabled && customSettings.apiKey) {
-                    apiKey = customSettings.apiKey;
-                    model = customSettings.model || AI_MODEL;
-                    console.log('Using custom API settings with model:', model);
+            if (userDoc.exists()) {
+                const userData = userDoc.data();
+                
+                // Priority 1: Check if custom API is enabled
+                if (userData.customApiSettings?.enabled && userData.customApiSettings?.apiKey) {
+                    apiKey = userData.customApiSettings.apiKey;
+                    model = userData.customApiSettings.model || AI_MODEL;
+                    console.log('✅ Using custom API with model:', model);
+                } 
+                // Priority 2: Use user's default free model preference
+                else if (userData.defaultModel) {
+                    model = userData.defaultModel;
+                    console.log('✅ Using user default model:', model);
+                }
+                // Priority 3: Use app default (AI_MODEL constant)
+                else {
+                    console.log('✅ Using app default model:', model);
                 }
             }
         } catch (error) {
-            console.error('Error loading custom API settings:', error);
-            // Fall back to default settings
+            console.error('Error loading user settings:', error);
+            // Fall back to app default
         }
     }
     
@@ -969,9 +1067,32 @@ async function callOpenRouter(message) {
         const responseData = await response.json();
         
         if (!response.ok) {
-            // Log the full error for debugging
-            console.error('OpenRouter API Error:', responseData);
-            throw new Error(`API Error ${response.status}: ${responseData.error?.message || 'Invalid request'}`);
+            // 🔥 IMPROVED: Log the full error for debugging and provide detailed message
+            console.error('❌ OpenRouter API Error Response:', responseData);
+            
+            // Extract specific error details
+            let errorMsg = 'API request failed';
+            if (responseData.error) {
+                errorMsg = responseData.error.message || responseData.error.code || errorMsg;
+                
+                // Check for specific error types
+                if (errorMsg.includes('rate limit')) {
+                    errorMsg = 'Rate limit reached. Please wait a moment and try again.';
+                } else if (errorMsg.includes('insufficient credits') || errorMsg.includes('quota')) {
+                    errorMsg = 'API quota exceeded. Consider using a custom API key in settings.';
+                } else if (errorMsg.includes('invalid') || errorMsg.includes('authentication')) {
+                    errorMsg = 'Invalid API key. Please check your settings.';
+                } else if (response.status === 502 || response.status === 503) {
+                    errorMsg = 'AI service temporarily unavailable. Please try again.';
+                }
+            }
+            
+            throw new Error(`API Error (${response.status}): ${errorMsg}`);
+        }
+        
+        // 🔥 IMPROVED: Validate response structure
+        if (!responseData.choices || !responseData.choices[0] || !responseData.choices[0].message) {
+            throw new Error('Invalid API response structure');
         }
         
         const usage = responseData.usage || {};
@@ -990,10 +1111,16 @@ async function callOpenRouter(message) {
         };
         
     } catch (error) {
-        // Log network errors too
+        // 🔥 IMPROVED: Better error categorization
         if (error instanceof TypeError && error.message === 'Failed to fetch') {
-            throw new Error('Network error: Cannot reach OpenRouter API. Check your connection.');
+            throw new Error('Network error: Cannot reach OpenRouter API. Check your internet connection.');
         }
+        
+        if (error.message.includes('NetworkError')) {
+            throw new Error('Network error: Unable to connect to AI service.');
+        }
+        
+        // Re-throw with the original error message if it's already formatted
         throw error;
     }
 }
