@@ -880,19 +880,48 @@ async function sendMessage() {
     elements.chatInput.value = '';
     elements.sendBtn.disabled = true;
     const loadingMsg = addMessage('Thinking...', 'ai', true);
-    try {
-        const response = await callOpenRouterWithFallback(message);
-        loadingMsg.remove();
-        addMessage(response.content, 'ai');
-        updateMetrics(response.metrics);
-        saveChatHistory(message, response.content, response.metrics);
-    } catch (error) {
-        loadingMsg.remove();
-        addMessage('Error occurred. Try again.', 'ai');
-        showToast(error.message, 'error');
-    } finally {
-        elements.sendBtn.disabled = false;
+    
+    // 🔥 NEW: RETRY LOGIC WITH EXPONENTIAL BACKOFF
+    let retries = 0;
+    const maxRetries = 3;
+    
+    while (retries < maxRetries) {
+        try {
+            const response = await callOpenRouterWithFallback(message);
+            loadingMsg.remove();
+            addMessage(response.content, 'ai');
+            updateMetrics(response.metrics);
+            saveChatHistory(message, response.content, response.metrics);
+            elements.sendBtn.disabled = false;
+            return; // Success!
+        } catch (error) {
+            retries++;
+            console.error(`💥 Attempt ${retries}/${maxRetries} failed:`, error);
+            
+            if (retries < maxRetries) {
+                // Wait before retrying (exponential backoff: 1s, 2s, 4s)
+                const waitTime = Math.pow(2, retries - 1) * 1000;
+                console.log(`⏳ Retrying in ${waitTime}ms...`);
+                
+                // Update loading message to show retry
+                const bubble = loadingMsg.querySelector('.message-bubble');
+                if (bubble) {
+                    bubble.innerHTML = `<div class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></div> Retry ${retries}/${maxRetries}...`;
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            } else {
+                // All retries exhausted
+                loadingMsg.remove();
+                const errorMessage = error.message || 'Unknown error';
+                addMessage(`❌ Failed after ${maxRetries} attempts: ${errorMessage}`, 'ai');
+                showToast(`AI Error: ${errorMessage}`, 'error');
+                console.error('🚫 Full error details:', error);
+            }
+        }
     }
+    
+    elements.sendBtn.disabled = false;
 }
 
 // ===== IMPROVED API CALL WITH BETTER ERROR HANDLING =====
