@@ -90,6 +90,11 @@ onAuthStateChanged(auth, async (user) => {
         await loadUserProfile();
         setupRealtimeListeners();
         
+        // Initialize AI in background with system prompt
+        initializeAIBackground().catch(err => {
+            console.warn('Background AI init failed (non-critical):', err);
+        });
+        
         // FIX: Ensure we navigate to home page after auth with small delay
         setTimeout(() => {
             showPage('homePage');
@@ -527,6 +532,93 @@ function getTimeAgo(timestamp) {
     return date.toLocaleDateString();
 }
 
+// ===== FETCH FREE MODELS FROM OPENROUTER =====
+async function fetchFreeModels() {
+    try {
+        console.log('📡 Fetching free models from OpenRouter...');
+        const response = await fetch('https://openrouter.ai/api/v1/models', {
+            headers: {
+                'Authorization': `Bearer ${OPENROUTER_KEY}`
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch models');
+        }
+        
+        const data = await response.json();
+        
+        // Filter for free models and sort by name
+        const freeModels = data.data
+            .filter(model => {
+                // Check if model is free (pricing is 0 or has "free" in ID)
+                const isFree = model.id.includes(':free') || 
+                              (model.pricing?.prompt === '0' && model.pricing?.completion === '0');
+                return isFree;
+            })
+            .map(model => ({
+                value: model.id,
+                name: model.name || model.id,
+                contextLength: model.context_length
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        
+        console.log(`✅ Found ${freeModels.length} free models`);
+        return freeModels;
+        
+    } catch (error) {
+        console.error('❌ Error fetching models:', error);
+        // Fallback to hardcoded list if API fails
+        return [
+            { value: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Fast & Reliable)' },
+            { value: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Powerful)' },
+            { value: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Balanced)' },
+            { value: 'qwen/qwen-2-7b-instruct:free', name: 'Qwen 2 7B (Smart)' },
+            { value: 'microsoft/phi-3-mini-128k-instruct:free', name: 'Phi-3 Mini (Compact)' },
+            { value: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Google)' }
+        ];
+    }
+}
+
+// ===== BACKGROUND AI INITIALIZATION WITH SYSTEM PROMPT =====
+async function initializeAIBackground() {
+    if (!currentUser) return;
+    
+    try {
+        console.log('🤖 Initializing AI in background...');
+        
+        const systemPrompt = `You are a helpful AI assistant integrated into StudyApp, an educational productivity application. 
+        
+Your role is to:
+- Help students with their homework and assignments
+- Explain complex concepts in simple terms
+- Provide study tips and learning strategies
+- Answer questions across various subjects
+- Be encouraging and supportive
+
+Keep responses:
+- Clear and concise
+- Age-appropriate for students
+- Educational and informative
+- Friendly and encouraging
+
+Current user: ${userProfile.name || 'Student'}
+Current date: ${new Date().toLocaleDateString()}`;
+
+        // Send a silent initialization message
+        const response = await callOpenRouter(systemPrompt);
+        console.log('✅ AI initialized successfully');
+        
+        // Don't display this message to user, just initialize the connection
+        return true;
+        
+    } catch (error) {
+        console.warn('⚠️ AI initialization failed (non-critical):', error.message);
+        // This is non-critical, so we don't show error to user
+        return false;
+    }
+}
+
 // ===== PROFILE SETTINGS =====
 // This is the updated loadProfileSettings function
 // Replace the existing one (lines 518-590) with this
@@ -561,15 +653,8 @@ async function loadProfileSettings() {
         totalAssignments: assignments.length
     };
     
-    // Available free models
-    const availableModels = [
-        { value: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Fast & Reliable)' },
-        { value: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Balanced)' },
-        { value: 'qwen/qwen-2-7b-instruct:free', name: 'Qwen 2 7B (Smart)' },
-        { value: 'microsoft/phi-3-mini-128k-instruct:free', name: 'Phi-3 Mini (Compact)' },
-        { value: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Google)' },
-        { value: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Powerful)' }
-    ];
+    // Fetch available free models from OpenRouter API
+    const availableModels = await fetchFreeModels();
     
     settingsContainer.innerHTML = `
         <div class="assignment-card">
@@ -627,17 +712,23 @@ async function loadProfileSettings() {
                 </div>
                 
                 <div class="form-group">
-                    <label style="font-size: 14px; margin-bottom: 6px; display: block;">AI Model</label>
+                    <label style="font-size: 14px; margin-bottom: 6px; display: block;">
+                        AI Model 
+                        <span style="color: var(--text-secondary); font-weight: normal;">(${availableModels.length} free models available)</span>
+                    </label>
                     <select 
                         id="customModelSelect" 
                         style="width: 100%; padding: 10px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--card-bg); color: var(--text-primary);"
                     >
                         ${availableModels.map(model => `
                             <option value="${model.value}" ${customApiSettings.model === model.value ? 'selected' : ''}>
-                                ${model.name}
+                                ${model.name}${model.contextLength ? ` (${model.contextLength.toLocaleString()} tokens)` : ''}
                             </option>
                         `).join('')}
                     </select>
+                    <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                        💡 All models are free! Updated automatically from OpenRouter.
+                    </p>
                 </div>
                 
                 <button class="btn btn-primary" id="saveApiSettingsBtn" style="margin-top: 12px; width: 100%;">
