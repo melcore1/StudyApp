@@ -1,21 +1,13 @@
 # StudyApp - Mobile Web App Setup
 
-## 1. Firebase Setup
-1. Go to console.firebase.google.com
-2. Create new project
-3. Enable Authentication &gt; Email/Password
-4. Copy config to `firebase-config.js`
+## Feature's
+1. Assignment Entry
+2. AI chat For HW or Help
+3. Custom AI chat capability for extensive or complex problems eg. calc math
+4. Modern UI with Dark mode
 
-## 2. OpenRouter Setup
-1. Sign up at openrouter.ai
-2. Get API key from dashboard
-3. Replace `YOUR_OPENROUTER_API_KEY` in main.js
-4. Check pricing: https://openrouter.ai/docs#models
+The app is hosted on Vercel
+https://study-app-three-blond.vercel.app/
 
-## 3. Run & Deploy
-```bash
-# Local development
-python -m http.server 8000
-
-# Deploy to Netlify/Vercel
-# Just upload all files
+Mainly written in Javascript, HTML
+Utlise's Firebase as a backend and Vercel for hosting app.
