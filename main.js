@@ -424,7 +424,6 @@ function renderAssignments(assignmentsToRender) {
     container.appendChild(fragment);
 }
 
-// ===== EVENT DELEGATION HANDLER =====
 function handleAssignmentAction(e) {
     const button = e.target.closest('.assignment-action-btn');
     if (!button) return;
@@ -688,7 +687,7 @@ async function loadProfileSettings() {
         <div class="assignment-card">
             <h4 style="margin-bottom: 12px;">🤖 Default AI Model (Free)</h4>
             <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">
-                Choose your preferred free AI model. No API key needed!
+                Choose your preferred free AI model. This will be used when Custom API is disabled.
             </p>
             <div class="form-group">
                 <label style="font-size: 14px; margin-bottom: 6px; display: block;">
@@ -982,7 +981,7 @@ async function sendMessage() {
     }
 }
 
-// ===== API CALL =====
+// ===== API CALL WITH CORRECT MODEL SELECTION =====
 async function callOpenRouter(message) {
     const startTime = performance.now();
     
@@ -995,11 +994,13 @@ async function callOpenRouter(message) {
             if (userDoc.exists()) {
                 const userData = userDoc.data();
                 
+                // 🔥 KEY FIX: Check if custom API is enabled FIRST
                 if (userData.customApiSettings?.enabled && userData.customApiSettings?.apiKey) {
                     apiKey = userData.customApiSettings.apiKey;
                     model = userData.customApiSettings.model || DEFAULT_AI_MODEL;
                     console.log('✅ Using custom API with model:', model);
                 } 
+                // 🔥 KEY FIX: Only use defaultModel if custom API is NOT enabled
                 else if (userData.defaultModel) {
                     model = userData.defaultModel;
                     console.log('✅ Using user default model:', model);
