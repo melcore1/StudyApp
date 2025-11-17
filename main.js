@@ -36,11 +36,11 @@ let userProfile = { name: '', email: '' };
 // ===== CONFIGURATION =====
 // ⚠️ WARNING: Keep this key private! Do NOT commit to public Git repos!
 const OPENROUTER_KEY = "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";
-const DEFAULT_AI_MODEL = "meta-llama/llama-3.2-3b-instruct:free"; // Back to stable model
-const MODEL_PRICING = { input: 0.00, output: 0.00 }; // It's FREE!
+const DEFAULT_AI_MODEL = "meta-llama/llama-3.2-3b-instruct:free";
+const MODEL_PRICING = { input: 0.00, output: 0.00 };
 
 // Rate limiting configuration
-const REQUEST_COOLDOWN = 2000; // 2 seconds between requests
+const REQUEST_COOLDOWN = 2000;
 let lastRequestTime = 0;
 
 // ===== INITIALIZATION =====
@@ -94,7 +94,6 @@ onAuthStateChanged(auth, async (user) => {
         await loadUserProfile();
         setupRealtimeListeners();
         
-        // FIX: Ensure we navigate to home page after auth with small delay
         setTimeout(() => {
             showPage('homePage');
             updateProfileInfo();
@@ -178,7 +177,6 @@ function showPage(pageId) {
         sharedNav.style.display = isAuthPage ? 'none' : 'flex';
     }
     
-    // FIX: Update nav items only if nav exists
     const navItems = document.querySelectorAll('#sharedBottomNav .nav-item');
     navItems.forEach(item => {
         item.classList.remove('active');
@@ -211,14 +209,11 @@ elements.loginForm.addEventListener('submit', async (e) => {
         showToast('Logging in...', 'info');
         console.log('Attempting login...');
         
-        // FIX: Store result and wait for auth state change
         const result = await signInWithEmailAndPassword(auth, email, password);
         console.log('Login successful:', result.user.uid);
         
-        // Give auth state change time to process
         await new Promise(resolve => setTimeout(resolve, 300));
         
-        // Explicitly navigate to home page
         showPage('homePage');
         showToast('Welcome back!', 'success');
         
@@ -377,11 +372,10 @@ async function deleteAssignment(id) {
     }
 }
 
-// ===== NEW: RENDER ASSIGNMENTS WITH EVENT DELEGATION =====
+// ===== RENDER ASSIGNMENTS =====
 function renderAssignments(assignmentsToRender) {
     const container = elements.assignmentsList;
     
-    // Clear container and remove old listeners
     container.innerHTML = '';
     
     if (!assignmentsToRender || assignmentsToRender.length === 0) {
@@ -394,14 +388,12 @@ function renderAssignments(assignmentsToRender) {
         return;
     }
     
-    // Create document fragment for better performance
     const fragment = document.createDocumentFragment();
     
     assignmentsToRender.forEach(assignment => {
         const dueDate = assignment.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : 'No due date';
         const isOverdue = assignment.dueDate && new Date(assignment.dueDate) < new Date() && assignment.status === 'pending';
         
-        // Create card element
         const card = document.createElement('div');
         card.className = 'assignment-card';
         if (isOverdue) card.style.borderLeftColor = '#ef4444';
@@ -432,7 +424,7 @@ function renderAssignments(assignmentsToRender) {
     container.appendChild(fragment);
 }
 
-// ===== NEW: EVENT DELEGATION HANDLER =====
+// ===== EVENT DELEGATION HANDLER =====
 function handleAssignmentAction(e) {
     const button = e.target.closest('.assignment-action-btn');
     if (!button) return;
@@ -448,7 +440,6 @@ function handleAssignmentAction(e) {
     }
 }
 
-// Add the event listener to the container (DO THIS ONLY ONCE)
 elements.assignmentsList.addEventListener('click', handleAssignmentAction);
 
 // ===== HOME PAGE DATA =====
@@ -531,7 +522,7 @@ function getTimeAgo(timestamp) {
     return date.toLocaleDateString();
 }
 
-// ===== FETCH MODELS BASED ON USER'S API KEY =====
+// ===== FETCH MODELS =====
 async function fetchModelsForUser(apiKey = null) {
     const keyToUse = apiKey || OPENROUTER_KEY;
     
@@ -552,7 +543,6 @@ async function fetchModelsForUser(apiKey = null) {
         
         const data = await response.json();
         
-        // Map all models with their actual pricing and availability
         const allModels = data.data
             .map(model => {
                 const isFree = model.id.includes(':free') || 
@@ -573,24 +563,22 @@ async function fetchModelsForUser(apiKey = null) {
     } catch (error) {
         console.error('❌ Error fetching models:', error);
         
-        // If using custom API key fails, fallback to default key
         if (apiKey && apiKey !== OPENROUTER_KEY) {
             console.log('🔄 Falling back to default API key for model list...');
             return fetchModelsForUser(OPENROUTER_KEY);
         }
         
-        // Final fallback to hardcoded list
         return [
             { value: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Fast & Reliable)', isFree: true, pricing: { prompt: '0', completion: '0' } },
             { value: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Powerful)', isFree: true, pricing: { prompt: '0', completion: '0' } },
             { value: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Balanced)', isFree: true, pricing: { prompt: '0', completion: '0' } },
             { value: 'qwen/qwen-2-7b-instruct:free', name: 'Qwen 2 7B (Smart)', isFree: true, pricing: { prompt: '0', completion: '0' } },
+            { value: 'microsoft/phi-3-mini-128k-instruct:free', name: 'Phi-3 Mini (Compact)', isFree: true, pricing: { prompt: '0', completion: '0' } },
             { value: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Google)', isFree: true, pricing: { prompt: '0', completion: '0' } }
         ];
     }
 }
 
-// ===== FETCH FREE MODELS ONLY =====
 async function fetchFreeModels(apiKey = null) {
     const allModels = await fetchModelsForUser(apiKey);
     return allModels.filter(model => model.isFree);
@@ -600,7 +588,6 @@ async function fetchFreeModels(apiKey = null) {
 async function loadProfileSettings() {
     if (!currentUser || !userProfile) return;
     
-    // Load user's preferences from Firestore
     let defaultModel = DEFAULT_AI_MODEL;
     let customApiSettings = {
         enabled: false,
@@ -634,7 +621,6 @@ async function loadProfileSettings() {
         totalAssignments: assignments.length
     };
     
-    // Fetch models based on user's API key
     let freeModels, allModels;
     
     if (customApiSettings.enabled && customApiSettings.apiKey) {
@@ -665,7 +651,6 @@ async function loadProfileSettings() {
             </div>
         </div>
         
-        <!-- RATE LIMITING NOTICE WITH IMPROVED STYLING -->
         <div class="assignment-card rate-limiting-notice">
             <h4 style="margin-bottom: 12px;">⚠️ Rate Limiting Notice</h4>
             <p style="font-size: 14px; margin-bottom: 8px;">
@@ -673,7 +658,7 @@ async function loadProfileSettings() {
             </p>
             <ul style="font-size: 14px; margin-left: 20px; margin-bottom: 8px;">
                 <li>Wait a few minutes before trying again</li>
-                <li>Try a different model from the dropdown</li>
+                <li>Try a different model from dropdown</li>
                 <li>Use your own API key for higher limits</li>
             </ul>
             <p style="font-size: 14px;">
@@ -700,7 +685,6 @@ async function loadProfileSettings() {
             <p class="assignment-meta">Account created: ${accountCreated}</p>
         </div>
         
-        <!-- FREE MODEL SELECTION (Always visible) -->
         <div class="assignment-card">
             <h4 style="margin-bottom: 12px;">🤖 Default AI Model (Free)</h4>
             <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">
@@ -727,7 +711,6 @@ async function loadProfileSettings() {
             </div>
         </div>
         
-        <!-- CUSTOM API SETTINGS (Advanced) -->
         <div class="assignment-card">
             <h4 style="margin-bottom: 12px;">🔑 Advanced: Custom API Key</h4>
             <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">
@@ -793,7 +776,6 @@ async function loadProfileSettings() {
         </div>
     `;
     
-    // Dark mode toggle
     const darkModeToggle = document.getElementById('darkModeToggle');
     const savedDarkMode = localStorage.getItem('darkMode') === 'true';
     if (darkModeToggle) {
@@ -812,7 +794,6 @@ async function loadProfileSettings() {
         document.body.setAttribute('data-theme', 'dark');
     }
     
-    // Save default model button
     const saveDefaultModelBtn = document.getElementById('saveDefaultModelBtn');
     if (saveDefaultModelBtn) {
         saveDefaultModelBtn.addEventListener('click', async () => {
@@ -834,7 +815,6 @@ async function loadProfileSettings() {
         });
     }
     
-    // Custom API toggle - save immediately when changed
     const customApiToggle = document.getElementById('customApiToggle');
     const customApiContainer = document.getElementById('customApiContainer');
     
@@ -843,7 +823,6 @@ async function loadProfileSettings() {
             const isEnabled = e.target.checked;
             customApiContainer.style.display = isEnabled ? 'block' : 'none';
             
-            // Save the enabled/disabled state immediately
             try {
                 showToast(isEnabled ? 'Enabling custom API...' : 'Disabling custom API...', 'info');
                 
@@ -855,10 +834,8 @@ async function loadProfileSettings() {
                     }
                 });
                 
-                // Update local state
                 customApiSettings.enabled = isEnabled;
                 
-                // Refresh the page to reload models with new API key
                 if (isEnabled && customApiSettings.apiKey) {
                     showToast('Custom API enabled! Refreshing models...', 'success');
                     setTimeout(() => loadProfileSettings(), 1000);
@@ -870,14 +847,12 @@ async function loadProfileSettings() {
             } catch (error) {
                 console.error('Error saving toggle state:', error);
                 showToast('Failed to save setting', 'error');
-                // Revert toggle on error
                 customApiToggle.checked = !isEnabled;
                 customApiContainer.style.display = !isEnabled ? 'block' : 'none';
             }
         });
     }
     
-    // Save custom API settings button (API key and model)
     const saveCustomApiBtn = document.getElementById('saveCustomApiBtn');
     if (saveCustomApiBtn) {
         saveCustomApiBtn.addEventListener('click', async () => {
@@ -894,7 +869,7 @@ async function loadProfileSettings() {
                 
                 await updateDoc(doc(db, 'users', currentUser.uid), {
                     customApiSettings: {
-                        enabled: customApiSettings.enabled, // Keep current toggle state
+                        enabled: customApiSettings.enabled,
                         apiKey: apiKey,
                         model: model
                     }
@@ -903,7 +878,6 @@ async function loadProfileSettings() {
                 showToast('Custom API settings saved! Refreshing models...', 'success');
                 console.log('✅ Custom API key and model saved');
                 
-                // Refresh the page to reload models with new API key
                 setTimeout(() => loadProfileSettings(), 1000);
             } catch (error) {
                 console.error('Error saving custom API settings:', error);
@@ -967,7 +941,6 @@ async function sendMessage() {
     const message = elements.chatInput.value.trim();
     if (!message) return;
     
-    // Input validation
     if (message.length < 2) {
         showToast('Message too short', 'error');
         return;
@@ -978,7 +951,6 @@ async function sendMessage() {
         return;
     }
     
-    // Check cooldown
     const now = Date.now();
     if (now - lastRequestTime < REQUEST_COOLDOWN) {
         const waitTime = Math.ceil((REQUEST_COOLDOWN - (now - lastRequestTime)) / 1000);
@@ -1010,11 +982,10 @@ async function sendMessage() {
     }
 }
 
-// ===== API CALL WITH USER-SPECIFIC MODELS =====
+// ===== API CALL =====
 async function callOpenRouter(message) {
     const startTime = performance.now();
     
-    // Model priority: Custom API > User's default > App default
     let apiKey = OPENROUTER_KEY;
     let model = DEFAULT_AI_MODEL;
     
@@ -1024,25 +995,21 @@ async function callOpenRouter(message) {
             if (userDoc.exists()) {
                 const userData = userDoc.data();
                 
-                // Priority 1: Check if custom API is enabled
                 if (userData.customApiSettings?.enabled && userData.customApiSettings?.apiKey) {
                     apiKey = userData.customApiSettings.apiKey;
                     model = userData.customApiSettings.model || DEFAULT_AI_MODEL;
                     console.log('✅ Using custom API with model:', model);
                 } 
-                // Priority 2: Use user's default free model preference
                 else if (userData.defaultModel) {
                     model = userData.defaultModel;
                     console.log('✅ Using user default model:', model);
                 }
-                // Priority 3: Use app default (DEFAULT_AI_MODEL constant)
                 else {
                     console.log('✅ Using app default model:', model);
                 }
             }
         } catch (error) {
             console.error('Error loading user settings:', error);
-            // Fall back to app default
         }
     }
     
@@ -1070,7 +1037,6 @@ async function callOpenRouter(message) {
             if (responseData.error) {
                 errorMsg = responseData.error.message || responseData.error.code || errorMsg;
                 
-                // Check for specific error types
                 if (errorMsg.includes('rate limit')) {
                     errorMsg = 'Rate limit reached. Please wait a moment and try again.';
                 } else if (errorMsg.includes('insufficient credits') || errorMsg.includes('quota')) {
@@ -1140,10 +1106,12 @@ function addMessage(content, sender, isLoading = false) {
 }
 
 function updateMetrics(metrics) {
-    elements.metricsBar.style.display = 'flex';
-    elements.costMetric.textContent = metrics.totalCost.toFixed(4);
-    elements.speedMetric.textContent = metrics.speed;
-    elements.tokensMetric.textContent = metrics.totalTokens;
+    if (elements.metricsBar && elements.costMetric && elements.speedMetric && elements.tokensMetric) {
+        elements.metricsBar.style.display = 'flex';
+        elements.costMetric.textContent = metrics.totalCost.toFixed(4);
+        elements.speedMetric.textContent = metrics.speed;
+        elements.tokensMetric.textContent = metrics.totalTokens;
+    }
 }
 
 function saveChatHistory(userMsg, aiMsg, metrics) {
@@ -1153,20 +1121,23 @@ function saveChatHistory(userMsg, aiMsg, metrics) {
 }
 
 function loadChatHistory() {
-    elements.chatMessages.innerHTML = '';
-    chatHistory.forEach(chat => {
-        addMessage(chat.user, 'user');
-        addMessage(chat.ai, 'ai');
-    });
+    if (elements.chatMessages) {
+        elements.chatMessages.innerHTML = '';
+        chatHistory.forEach(chat => {
+            addMessage(chat.user, 'user');
+            addMessage(chat.ai, 'ai');
+        });
+    }
 }
 
 // ===== UTILITY FUNCTIONS =====
 function showToast(message, type = 'info') {
-    const toast = elements.toast;
-    toast.textContent = message;
-    toast.className = `toast ${type}`;
-    toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), 3000);
+    if (elements.toast) {
+        elements.toast.textContent = message;
+        elements.toast.className = `toast ${type}`;
+        elements.toast.classList.add('show');
+        setTimeout(() => elements.toast.classList.remove('show'), 3000);
+    }
 }
 
 function updateProfileInfo() {
@@ -1181,7 +1152,7 @@ function updateProfileInfo() {
     if (elements.homeGreeting) elements.homeGreeting.textContent = `Welcome back, ${name}!`;
 }
 
-// ===== EXPOSE FUNCTIONS TO WINDOW (for onclick handlers) =====
+// ===== EXPOSE FUNCTIONS TO WINDOW =====
 window.resetPassword = resetPassword;
 window.deleteAccount = deleteAccount;
 
@@ -1195,7 +1166,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.setAttribute('data-theme', 'dark');
     }
     
-    // FIX: Ensure nav bar is hidden on initial load
     const sharedNav = document.getElementById('sharedBottomNav');
     if (sharedNav) {
         sharedNav.style.display = 'none';
