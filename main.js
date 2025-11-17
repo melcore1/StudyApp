@@ -108,6 +108,45 @@ onAuthStateChanged(auth, async (user) => {
     }
 });
 
+// ===== FETCH ALL MODELS (FREE + PAID) =====
+async function fetchAllModels() {
+    try {
+        console.log('📡 Fetching ALL models from OpenRouter...');
+
+        const response = await fetch('https://openrouter.ai/api/v1/models', {
+            headers: {
+                'Authorization': `Bearer ${OPENROUTER_KEY}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to fetch all models');
+        }
+
+        const data = await response.json();
+
+        return data.data.map(model => ({
+            value: model.id,
+            name: model.name || model.id,
+            contextLength: model.context_length || null,
+            isFree:
+                model.id.includes(':free') ||
+                model.pricing?.prompt === '0' ||
+                model.pricing?.completion === '0'
+        })).sort((a, b) => a.name.localeCompare(b.name));
+
+    } catch (error) {
+        console.error('❌ Error fetching ALL models:', error);
+
+        // Fallback minimal list
+        return [
+            { value: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Free)', isFree: true },
+            { value: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free)', isFree: true }
+        ];
+    }
+}
+
+
 // ===== USER PROFILE MANAGEMENT =====
 async function loadUserProfile() {
     if (!currentUser) return;
