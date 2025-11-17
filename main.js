@@ -36,8 +36,21 @@ let userProfile = { name: '', email: '' };
 // ===== CONFIGURATION =====
 // ⚠️ WARNING: Keep this key private! Do NOT commit to public Git repos!
 const OPENROUTER_KEY = "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";
-const AI_MODEL = "meta-llama/llama-3.2-3b-instruct:free"; // Reliable free model
+const AI_MODEL = "meta-llama/llama-3.1-8b-instruct:free"; // Updated to more reliable model
 const MODEL_PRICING = { input: 0.00, output: 0.00 }; // It's FREE!
+
+// Rate limiting configuration
+const REQUEST_COOLDOWN = 2000; // 2 seconds between requests
+let lastRequestTime = 0;
+
+// Fallback models list
+const FALLBACK_MODELS = [
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "mistralai/mistral-7b-instruct:free",
+    "microsoft/phi-3-mini-128k-instruct:free",
+    "qwen/qwen-2-7b-instruct:free"
+];
 
 // ===== INITIALIZATION =====
 const app = initializeApp(firebaseConfig);
@@ -107,45 +120,6 @@ onAuthStateChanged(auth, async (user) => {
         showPage('loginPage');
     }
 });
-
-// ===== FETCH ALL MODELS (FREE + PAID) =====
-async function fetchAllModels() {
-    try {
-        console.log('📡 Fetching ALL models from OpenRouter...');
-
-        const response = await fetch('https://openrouter.ai/api/v1/models', {
-            headers: {
-                'Authorization': `Bearer ${OPENROUTER_KEY}`
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error('Failed to fetch all models');
-        }
-
-        const data = await response.json();
-
-        return data.data.map(model => ({
-            value: model.id,
-            name: model.name || model.id,
-            contextLength: model.context_length || null,
-            isFree:
-                model.id.includes(':free') ||
-                model.pricing?.prompt === '0' ||
-                model.pricing?.completion === '0'
-        })).sort((a, b) => a.name.localeCompare(b.name));
-
-    } catch (error) {
-        console.error('❌ Error fetching ALL models:', error);
-
-        // Fallback minimal list
-        return [
-            { value: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Free)', isFree: true },
-            { value: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free)', isFree: true }
-        ];
-    }
-}
-
 
 // ===== USER PROFILE MANAGEMENT =====
 async function loadUserProfile() {
@@ -609,12 +583,61 @@ async function fetchFreeModels() {
         console.error('❌ Error fetching models:', error);
         // Fallback to hardcoded list if API fails
         return [
-            { value: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Fast & Reliable)' },
             { value: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Powerful)' },
+            { value: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Fast & Reliable)' },
             { value: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Balanced)' },
             { value: 'qwen/qwen-2-7b-instruct:free', name: 'Qwen 2 7B (Smart)' },
             { value: 'microsoft/phi-3-mini-128k-instruct:free', name: 'Phi-3 Mini (Compact)' },
             { value: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Google)' }
+        ];
+    }
+}
+
+// ===== FETCH ALL MODELS (FREE + PAID) =====
+async function fetchAllModels() {
+    try {
+        console.log('📡 Fetching all models from OpenRouter...');
+        const response = await fetch('https://openrouter.ai/api/v1/models', {
+            headers: {
+                'Authorization': `Bearer ${OPENROUTER_KEY}`
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch models');
+        }
+        
+        const data = await response.json();
+        
+        // Map all models with free indicator
+        const allModels = data.data
+            .map(model => {
+                const isFree = model.id.includes(':free') || 
+                              (model.pricing?.prompt === '0' && model.pricing?.completion === '0');
+                return {
+                    value: model.id,
+                    name: model.name || model.id,
+                    contextLength: model.context_length,
+                    isFree: isFree
+                };
+            })
+            .sort((a, b) => a.name.localeCompare(b.name));
+        
+        console.log(`✅ Found ${allModels.length} total models`);
+        return allModels;
+        
+    } catch (error) {
+        console.error('❌ Error fetching models:', error);
+        // Fallback to hardcoded list if API fails
+        return [
+            { value: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Powerful)', isFree: true },
+            { value: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Fast & Reliable)', isFree: true },
+            { value: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Balanced)', isFree: true },
+            { value: 'qwen/qwen-2-7b-instruct:free', name: 'Qwen 2 7B (Smart)', isFree: true },
+            { value: 'microsoft/phi-3-mini-128k-instruct:free', name: 'Phi-3 Mini (Compact)', isFree: true },
+            { value: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Google)', isFree: true },
+            { value: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (Paid)', isFree: false },
+            { value: 'openai/gpt-4o', name: 'GPT-4o (Paid)', isFree: false }
         ];
     }
 }
@@ -659,9 +682,6 @@ Current date: ${new Date().toLocaleDateString()}`;
 }
 
 // ===== PROFILE SETTINGS =====
-// This is the updated loadProfileSettings function
-// Replace the existing one (lines 518-590) with this
-
 async function loadProfileSettings() {
     if (!currentUser || !userProfile) return;
     
@@ -670,7 +690,7 @@ async function loadProfileSettings() {
     let customApiSettings = {
         enabled: false,
         apiKey: '',
-        model: 'meta-llama/llama-3.2-3b-instruct:free'
+        model: 'meta-llama/llama-3.1-8b-instruct:free'
     };
     
     try {
@@ -712,6 +732,22 @@ async function loadProfileSettings() {
                 <div>Total Cost: <strong>$${userMetrics.totalCost.toFixed(4)}</strong></div>
                 <div>Assignments: <strong>${userMetrics.totalAssignments}</strong></div>
             </div>
+        </div>
+        
+        <!-- RATE LIMITING NOTICE -->
+        <div class="assignment-card" style="background-color: #fff3cd; border-left: 4px solid #ffc107;">
+            <h4 style="margin-bottom: 12px;">⚠️ Rate Limiting Notice</h4>
+            <p style="font-size: 14px; margin-bottom: 8px;">
+                Free models have usage limits. If you encounter rate limiting errors:
+            </p>
+            <ul style="font-size: 14px; margin-left: 20px; margin-bottom: 8px;">
+                <li>Wait a few minutes before trying again</li>
+                <li>Try a different model from the dropdown</li>
+                <li>Consider using your own API key for higher limits</li>
+            </ul>
+            <p style="font-size: 14px;">
+                <a href="https://openrouter.ai/keys" target="_blank" style="color: var(--primary-color);">Get your free API key here</a>
+            </p>
         </div>
         
         <div class="assignment-card">
@@ -845,7 +881,7 @@ async function loadProfileSettings() {
         document.body.setAttribute('data-theme', 'dark');
     }
     
-    // 🔥 FIX #1: Save default model button
+    // Save default model button
     const saveDefaultModelBtn = document.getElementById('saveDefaultModelBtn');
     if (saveDefaultModelBtn) {
         saveDefaultModelBtn.addEventListener('click', async () => {
@@ -867,7 +903,7 @@ async function loadProfileSettings() {
         });
     }
     
-    // 🔥 FIX #2: Custom API toggle - save immediately when changed
+    // Custom API toggle - save immediately when changed
     const customApiToggle = document.getElementById('customApiToggle');
     const customApiContainer = document.getElementById('customApiContainer');
     
@@ -936,7 +972,6 @@ async function loadProfileSettings() {
     }
 }
 
-
 async function resetPassword() {
     console.log('🔄 Reset Password button clicked!');
     console.log('👤 Current user:', currentUser);
@@ -1002,6 +1037,16 @@ async function sendMessage() {
         return;
     }
     
+    // Check cooldown
+    const now = Date.now();
+    if (now - lastRequestTime < REQUEST_COOLDOWN) {
+        const waitTime = Math.ceil((REQUEST_COOLDOWN - (now - lastRequestTime)) / 1000);
+        showToast(`Please wait ${waitTime} second(s) before sending another message`, 'info');
+        return;
+    }
+    
+    lastRequestTime = now;
+    
     addMessage(message, 'user');
     elements.chatInput.value = '';
     elements.sendBtn.disabled = true;
@@ -1009,7 +1054,7 @@ async function sendMessage() {
     
     // 🔥 NEW: RETRY LOGIC WITH EXPONENTIAL BACKOFF
     let retries = 0;
-    const maxRetries = 3;
+    const maxRetries = 5;
     
     while (retries < maxRetries) {
         try {
@@ -1025,14 +1070,17 @@ async function sendMessage() {
             console.error(`💥 Attempt ${retries}/${maxRetries} failed:`, error);
             
             if (retries < maxRetries) {
-                // Wait before retrying (exponential backoff: 1s, 2s, 4s)
-                const waitTime = Math.pow(2, retries - 1) * 1000;
+                // Longer wait times with more randomness
+                const baseWait = Math.pow(2, retries) * 1000;
+                const jitter = Math.random() * 1000;
+                const waitTime = baseWait + jitter;
+                
                 console.log(`⏳ Retrying in ${waitTime}ms...`);
                 
                 // Update loading message to show retry
                 const bubble = loadingMsg.querySelector('.message-bubble');
                 if (bubble) {
-                    bubble.innerHTML = `<div class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></div> Retry ${retries}/${maxRetries}...`;
+                    bubble.innerHTML = `<div class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></div> Retry ${retries}/${maxRetries}... (${Math.round(waitTime/1000)}s)`;
                 }
                 
                 await new Promise(resolve => setTimeout(resolve, waitTime));
@@ -1040,7 +1088,16 @@ async function sendMessage() {
                 // All retries exhausted
                 loadingMsg.remove();
                 const errorMessage = error.message || 'Unknown error';
-                addMessage(`❌ Failed after ${maxRetries} attempts: ${errorMessage}`, 'ai');
+                
+                // More user-friendly error messages
+                let userMessage = errorMessage;
+                if (errorMessage.includes('rate limit')) {
+                    userMessage = "OpenRouter is experiencing high demand. Please wait a few minutes before trying again.";
+                } else if (errorMessage.includes('404')) {
+                    userMessage = "AI model configuration issue. Please try a different model in settings.";
+                }
+                
+                addMessage(`❌ ${userMessage}`, 'ai');
                 showToast(`AI Error: ${errorMessage}`, 'error');
                 console.error('🚫 Full error details:', error);
             }
@@ -1050,7 +1107,6 @@ async function sendMessage() {
     elements.sendBtn.disabled = false;
 }
 
-// ===== IMPROVED API CALL WITH BETTER ERROR HANDLING =====
 // ===== IMPROVED API CALL WITH BETTER ERROR HANDLING AND CUSTOM SETTINGS =====
 async function callOpenRouter(message) {
     const startTime = performance.now();
@@ -1088,17 +1144,18 @@ async function callOpenRouter(message) {
     }
     
     try {
+        // Remove headers that might trigger the zero data retention policy
         const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
-                'HTTP-Referer': window.location.origin,
-                'X-Title': 'StudyApp'
+                'Content-Type': 'application/json'
+                // Removed: 'HTTP-Referer' and 'X-Title' headers that cause 404 errors
             },
             body: JSON.stringify({
                 model: model,
                 messages: [{ role: 'user', content: message }]
+                // Removed any data retention policy settings
             })
         });
         
@@ -1106,7 +1163,6 @@ async function callOpenRouter(message) {
         const responseData = await response.json();
         
         if (!response.ok) {
-            // 🔥 IMPROVED: Log the full error for debugging and provide detailed message
             console.error('❌ OpenRouter API Error Response:', responseData);
             
             // Extract specific error details
@@ -1121,6 +1177,8 @@ async function callOpenRouter(message) {
                     errorMsg = 'API quota exceeded. Consider using a custom API key in settings.';
                 } else if (errorMsg.includes('invalid') || errorMsg.includes('authentication')) {
                     errorMsg = 'Invalid API key. Please check your settings.';
+                } else if (response.status === 404) {
+                    errorMsg = 'Model not found or incompatible with current settings. Please try a different model.';
                 } else if (response.status === 502 || response.status === 503) {
                     errorMsg = 'AI service temporarily unavailable. Please try again.';
                 }
@@ -1129,7 +1187,7 @@ async function callOpenRouter(message) {
             throw new Error(`API Error (${response.status}): ${errorMsg}`);
         }
         
-        // 🔥 IMPROVED: Validate response structure
+        // Validate response structure
         if (!responseData.choices || !responseData.choices[0] || !responseData.choices[0].message) {
             throw new Error('Invalid API response structure');
         }
@@ -1150,7 +1208,7 @@ async function callOpenRouter(message) {
         };
         
     } catch (error) {
-        // 🔥 IMPROVED: Better error categorization
+        // Better error categorization
         if (error instanceof TypeError && error.message === 'Failed to fetch') {
             throw new Error('Network error: Cannot reach OpenRouter API. Check your internet connection.');
         }
@@ -1164,56 +1222,42 @@ async function callOpenRouter(message) {
     }
 }
 
-
-// ===== CORS FALLBACK FUNCTION =====
+// ===== MODEL FALLBACK SYSTEM =====
 async function callOpenRouterWithFallback(message) {
+    let lastError = null;
+    
+    // Try the primary model first
     try {
         return await callOpenRouter(message);
     } catch (error) {
-        // If direct call fails, try with a CORS proxy
-        if (error.message.includes('Network error') || error.message.includes('Failed to fetch')) {
-            showToast('Trying alternative connection...', 'info');
-            // Use a public CORS proxy as fallback
-            const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
-            const originalUrl = 'https://openrouter.ai/api/v1/chat/completions';
-            
-            const response = await fetch(proxyUrl + originalUrl, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${OPENROUTER_KEY}`,
-                    'Content-Type': 'application/json',
-                    'Origin': window.location.origin
-                },
-                body: JSON.stringify({
-                    model: AI_MODEL,
-                    messages: [{ role: 'user', content: message }]
-                })
-            });
-            
-            const responseData = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(`API Error ${response.status}: ${responseData.error?.message || 'Invalid request'}`);
-            }
-            
-            // Process successful response
-            const usage = responseData.usage || {};
-            const promptTokens = usage.prompt_tokens || 0;
-            const completionTokens = usage.completion_tokens || 0;
-            const totalTokens = usage.total_tokens || 0;
-            const inputCost = (promptTokens / 1000000) * MODEL_PRICING.input;
-            const outputCost = (completionTokens / 1000000) * MODEL_PRICING.output;
-            const totalCost = inputCost + outputCost;
-            const duration = (performance.now() - performance.now()) / 1000;
-            const speed = duration > 0 ? (completionTokens / duration).toFixed(1) : 0;
-            
-            return {
-                content: responseData.choices[0].message.content,
-                metrics: { promptTokens, completionTokens, totalTokens, totalCost, speed, duration: duration.toFixed(2) }
-            };
-        }
-        throw error;
+        lastError = error;
+        console.warn('Primary model failed, trying fallback models:', error);
     }
+    
+    // Try fallback models if the primary fails
+    for (const model of FALLBACK_MODELS) {
+        try {
+            showToast(`Trying alternative model: ${model.split(':')[0]}...`, 'info');
+            
+            // Temporarily override the model
+            const originalModel = AI_MODEL;
+            AI_MODEL = model;
+            
+            const response = await callOpenRouter(message);
+            
+            // Restore original model
+            AI_MODEL = originalModel;
+            
+            showToast(`Connected with model: ${model.split(':')[0]}`, 'success');
+            return response;
+        } catch (error) {
+            lastError = error;
+            console.warn(`Fallback model ${model} also failed:`, error);
+        }
+    }
+    
+    // If all models fail, throw the last error
+    throw lastError;
 }
 
 function addMessage(content, sender, isLoading = false) {
