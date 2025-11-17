@@ -8,3 +8,6 @@
 
 The app is hosted on Vercel
 https://study-app-three-blond.vercel.app/
+
+Mainly written in Javascript, HTML
+Utlise's Firebase as a backend and Vercel for hosting app.
