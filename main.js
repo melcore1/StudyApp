@@ -36,7 +36,7 @@ let userProfile = { name: '', email: '' };
 // ===== CONFIGURATION =====
 // ⚠️ WARNING: Keep this key private! Do NOT commit to public Git repos!
 const OPENROUTER_KEY = "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";
-const AI_MODEL = "meta-llama/llama-3.1-8b-instruct:free"; // Updated to more reliable model
+const DEFAULT_AI_MODEL = "meta-llama/llama-3.1-8b-instruct:free"; // Updated to more reliable model
 const MODEL_PRICING = { input: 0.00, output: 0.00 }; // It's FREE!
 
 // Rate limiting configuration
@@ -668,7 +668,7 @@ Current user: ${userProfile.name || 'Student'}
 Current date: ${new Date().toLocaleDateString()}`;
 
         // Send a silent initialization message
-        const response = await callOpenRouter(systemPrompt);
+        const response = await callOpenRouterWithFallback(systemPrompt);
         console.log('✅ AI initialized successfully');
         
         // Don't display this message to user, just initialize the connection
@@ -686,7 +686,7 @@ async function loadProfileSettings() {
     if (!currentUser || !userProfile) return;
     
     // Load user's preferences from Firestore
-    let defaultModel = AI_MODEL; // User's preferred free model
+    let defaultModel = DEFAULT_AI_MODEL; // User's preferred free model
     let customApiSettings = {
         enabled: false,
         apiKey: '',
@@ -734,8 +734,8 @@ async function loadProfileSettings() {
             </div>
         </div>
         
-        <!-- RATE LIMITING NOTICE -->
-        <div class="assignment-card" style="background-color: #fff3cd; border-left: 4px solid #ffc107;">
+        <!-- RATE LIMITING NOTICE WITH IMPROVED STYLING -->
+        <div class="assignment-card rate-limiting-notice">
             <h4 style="margin-bottom: 12px;">⚠️ Rate Limiting Notice</h4>
             <p style="font-size: 14px; margin-bottom: 8px;">
                 Free models have usage limits. If you encounter rate limiting errors:
@@ -746,7 +746,7 @@ async function loadProfileSettings() {
                 <li>Consider using your own API key for higher limits</li>
             </ul>
             <p style="font-size: 14px;">
-                <a href="https://openrouter.ai/keys" target="_blank" style="color: var(--primary-color);">Get your free API key here</a>
+                <a href="https://openrouter.ai/keys" target="_blank" style="color: #1e40af; text-decoration: underline;">Get your free API key here</a>
             </p>
         </div>
         
@@ -821,7 +821,7 @@ async function loadProfileSettings() {
                         style="width: 100%; padding: 10px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--card-bg); color: var(--text-primary);"
                     >
                     <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-                        Get your free key at <a href="https://openrouter.ai/keys" target="_blank" style="color: var(--primary-color);">openrouter.ai/keys</a>
+                        Get your free key at <a href="https://openrouter.ai/keys" target="_blank" style="color: #1e40af; text-decoration: underline;">openrouter.ai/keys</a>
                     </p>
                 </div>
                 
@@ -1108,12 +1108,12 @@ async function sendMessage() {
 }
 
 // ===== IMPROVED API CALL WITH BETTER ERROR HANDLING AND CUSTOM SETTINGS =====
-async function callOpenRouter(message) {
+async function callOpenRouter(message, modelOverride = null) {
     const startTime = performance.now();
     
     // Model priority: Custom API > User's default > App default
     let apiKey = OPENROUTER_KEY;
-    let model = AI_MODEL;
+    let model = modelOverride || DEFAULT_AI_MODEL;
     
     if (currentUser) {
         try {
@@ -1124,16 +1124,16 @@ async function callOpenRouter(message) {
                 // Priority 1: Check if custom API is enabled
                 if (userData.customApiSettings?.enabled && userData.customApiSettings?.apiKey) {
                     apiKey = userData.customApiSettings.apiKey;
-                    model = userData.customApiSettings.model || AI_MODEL;
+                    model = modelOverride || userData.customApiSettings.model || DEFAULT_AI_MODEL;
                     console.log('✅ Using custom API with model:', model);
                 } 
                 // Priority 2: Use user's default free model preference
-                else if (userData.defaultModel) {
+                else if (userData.defaultModel && !modelOverride) {
                     model = userData.defaultModel;
                     console.log('✅ Using user default model:', model);
                 }
-                // Priority 3: Use app default (AI_MODEL constant)
-                else {
+                // Priority 3: Use app default (DEFAULT_AI_MODEL constant)
+                else if (!modelOverride) {
                     console.log('✅ Using app default model:', model);
                 }
             }
@@ -1239,14 +1239,8 @@ async function callOpenRouterWithFallback(message) {
         try {
             showToast(`Trying alternative model: ${model.split(':')[0]}...`, 'info');
             
-            // Temporarily override the model
-            const originalModel = AI_MODEL;
-            AI_MODEL = model;
-            
-            const response = await callOpenRouter(message);
-            
-            // Restore original model
-            AI_MODEL = originalModel;
+            // FIXED: Pass model as parameter instead of reassigning const
+            const response = await callOpenRouter(message, model);
             
             showToast(`Connected with model: ${model.split(':')[0]}`, 'success');
             return response;
