@@ -981,7 +981,7 @@ async function sendMessage() {
     }
 }
 
-// ===== API CALL WITH CORRECT MODEL SELECTION =====
+// ===== API CALL WITH MODEL VALIDATION =====
 async function callOpenRouter(message) {
     const startTime = performance.now();
     
@@ -994,17 +994,18 @@ async function callOpenRouter(message) {
             if (userDoc.exists()) {
                 const userData = userDoc.data();
                 
-                // 🔥 KEY FIX: Check if custom API is enabled FIRST
+                // Priority 1: Check if custom API is enabled
                 if (userData.customApiSettings?.enabled && userData.customApiSettings?.apiKey) {
                     apiKey = userData.customApiSettings.apiKey;
                     model = userData.customApiSettings.model || DEFAULT_AI_MODEL;
                     console.log('✅ Using custom API with model:', model);
                 } 
-                // 🔥 KEY FIX: Only use defaultModel if custom API is NOT enabled
+                // Priority 2: Use user's default free model preference
                 else if (userData.defaultModel) {
                     model = userData.defaultModel;
                     console.log('✅ Using user default model:', model);
                 }
+                // Priority 3: Use app default (DEFAULT_AI_MODEL constant)
                 else {
                     console.log('✅ Using app default model:', model);
                 }
@@ -1014,7 +1015,33 @@ async function callOpenRouter(message) {
         }
     }
     
+    // 🔥 CRITICAL FIX: Validate model exists before making API call
     try {
+        console.log('🔍 Validating model:', model);
+        
+        // First, get available models with the API key
+        const modelsResponse = await fetch('https://openrouter.ai/api/v1/models', {
+            headers: {
+                'Authorization': `Bearer ${apiKey}`
+            }
+        });
+        
+        if (!modelsResponse.ok) {
+            throw new Error(`Failed to validate model: ${modelsResponse.status}`);
+        }
+        
+        const modelsData = await modelsResponse.json();
+        const availableModels = modelsData.data.map(m => m.id);
+        
+        // Check if the selected model is available
+        if (!availableModels.includes(model)) {
+            console.error('❌ Model not available:', model);
+            throw new Error(`Model "${model}" is not available or you don't have access to it. Please select a different model in settings.`);
+        }
+        
+        console.log('✅ Model validated, proceeding with API call');
+        
+        // Now make the actual API call
         const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
